@@ -346,8 +346,69 @@ const parseParaShd = (pXml) => {
 /**
  * Main DOCX XML parser.
  * Returns array of: { text: string, isCorrectMarked: bool }
- * Each item = one paragraph from the document.
+ *
+ * KEY FIX: Handles horizontal/inline option layout.
+ * In Word, "A. xxx   B. xxx   C. xxx   D. xxx" can be ONE w:p.
+ * We parse per-run with style info, then split inline options.
  */
+
+// Regex to detect inline option boundaries WITHIN a paragraph text
+// e.g. "A. foo   B. bar   C. baz*   D. qux"
+const INLINE_OPT_SPLIT = /(?<!\w)(?=[A-Da-d][\.\)])/g;
+const INLINE_OPT_START = /^([A-Da-d])[\.\)]\s*/;
+
+/**
+ * Split a paragraph that may contain multiple inline options.
+ * Returns array of { text, isCorrectMarked } segments.
+ *
+ * For each segment, isCorrectMarked = true if:
+ *   - Any styled run (red/underline) falls within the character range of that segment
+ *   - OR the segment contains '*'
+ */
+const splitInlineOptions = (paraText, paraMarked, runSegments) => {
+  // Count how many A./B./C./D. pattern occur in this paragraph
+  const matches = [...paraText.matchAll(/(?<![A-Za-z])([A-Da-d])[\.\)]\s/g)];
+
+  // If only 1 or 0 option labels → not a horizontal layout, return as-is
+  if (matches.length < 2) {
+    return [{ text: paraText, isCorrectMarked: paraMarked }];
+  }
+
+  // Split text at each label boundary
+  const labelPositions = matches.map(m => m.index);
+  const segments = [];
+
+  for (let i = 0; i < labelPositions.length; i++) {
+    const start = labelPositions[i];
+    const end = i + 1 < labelPositions.length ? labelPositions[i + 1] : paraText.length;
+    segments.push({ text: paraText.slice(start, end).trim(), start, end });
+  }
+
+  // Build a character-position map of "which chars are styled"
+  // by walking runSegments in order and tracking offsets
+  const styledRanges = []; // [{from, to}] in paraText coordinate
+  let pos = 0;
+  for (const run of runSegments) {
+    const runRaw = run.text; // trimmed run text
+    // Find this run text in paraText starting from pos
+    const idx = paraText.indexOf(runRaw, pos);
+    if (idx !== -1 && run.marked) {
+      styledRanges.push({ from: idx, to: idx + runRaw.length });
+    }
+    if (idx !== -1) pos = idx + runRaw.length;
+  }
+
+  return segments.map(seg => {
+    // Check if any styled range overlaps with this segment's character range
+    const isMarked = seg.text.includes('*') ||
+      styledRanges.some(r => r.from < seg.end && r.to > seg.start);
+    return {
+      text: seg.text.replace(/\*/g, '').trim(),
+      isCorrectMarked: isMarked
+    };
+  });
+};
+
 const parseDocxXml = (xmlString) => {
   // Extract all <w:p>...</w:p> paragraphs
   const paragraphs = [];
@@ -359,6 +420,7 @@ const parseDocxXml = (xmlString) => {
     let fullText = '';
     let hasRed = false;
     let hasUnderline = false;
+    const runSegments = []; // Track per-run: { text, marked }
 
     // Check paragraph-level background shading
     if (parseParaShd(pXml)) hasRed = true;
@@ -375,39 +437,48 @@ const parseDocxXml = (xmlString) => {
       const props = parseRunProps(rPrMatch ? rPrMatch[1] : '');
 
       // Get text content from w:t
-      const tMatches = rXml.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g);
+      const tMatches = [...rXml.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)];
       let runText = '';
-      for (const tm of tMatches) {
-        runText += tm[1];
-      }
+      for (const tm of tMatches) runText += tm[1];
 
-      // Also check w:tab → replace with space
+      // w:tab → space
       if (/<w:tab\s*\/>/.test(rXml)) runText += ' ';
 
       if (runText) {
         fullText += runText;
+        const runMarked = props.red || props.underline;
         if (props.red) hasRed = true;
         if (props.underline) hasUnderline = true;
+        // Track this run for inline split analysis
+        runSegments.push({ text: runText.trim(), marked: runMarked });
       }
     }
 
-    // Also extract text from w:ins (tracked insertions)
+    // Also extract text from w:ins (tracked insertions) — no style tracking
     const insRegex = /<w:ins[\s\S]*?<\/w:ins>/g;
     let insMatch;
     while ((insMatch = insRegex.exec(pXml)) !== null) {
       const insXml = insMatch[0];
-      const tMatches = insXml.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g);
-      for (const tm of tMatches) {
+      for (const tm of insXml.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)) {
         fullText += tm[1];
       }
     }
 
     const text = fullText.trim();
-    if (text) {
-      paragraphs.push({
-        text,
-        isCorrectMarked: hasRed || hasUnderline
-      });
+    if (!text) continue;
+
+    const paraMarked = hasRed || hasUnderline;
+
+    // Try to split inline options (horizontal layout)
+    const splitResult = splitInlineOptions(text, paraMarked, runSegments);
+
+    for (const seg of splitResult) {
+      if (seg.text) {
+        paragraphs.push({
+          text: seg.text,
+          isCorrectMarked: seg.isCorrectMarked || (splitResult.length === 1 && paraMarked)
+        });
+      }
     }
   }
 
@@ -416,10 +487,9 @@ const parseDocxXml = (xmlString) => {
 
 /**
  * Build quiz questions from parsed paragraphs.
- * Strategy:
- * 1. Group paragraphs into questions: detect option lines (A. / B. / C. / D.)
- * 2. For each option line, check if it's marked as correct
- * 3. Fallback: check for * in text
+ * After splitInlineOptions, each paragraph segment is either:
+ *   - A question line (no A./B./C./D. prefix)
+ *   - An option line (starts with A./B./C./D.)
  */
 const OPTION_LABEL_RE = /^([A-Da-d])[\.\)]\s*/;
 
@@ -436,7 +506,7 @@ const buildQuestionsFromParagraphs = (paragraphs) => {
       questions.push({
         question,
         options: options.map(o => ({ label: o.label, text: o.text, correct: o.correct })),
-        correct: correctIdx >= 0 ? correctIdx : 0,
+        correct: correctIdx >= 0 ? correctIdx : -1,
         answered: false,
         userIdx: -1,
         hasNoAnswer: correctIdx < 0
@@ -452,10 +522,13 @@ const buildQuestionsFromParagraphs = (paragraphs) => {
     const m = text.match(OPTION_LABEL_RE);
 
     if (m) {
-      // This is an option line
       inOptions = true;
       const label = m[1].toUpperCase();
       let optText = text.slice(m[0].length).trim();
+
+      // Strip trailing label references like ". B." or "B." at end (artifact from inline split)
+      // e.g. "Cánh dơi và tay người." is clean, but sometimes trailing garbage appears
+      optText = optText.replace(/\s+[A-Da-d][\.\)]\s*$/, '').trim();
 
       // Check * marker
       let correct = isCorrectMarked;
@@ -464,18 +537,15 @@ const buildQuestionsFromParagraphs = (paragraphs) => {
         optText = optText.replace(/\*/g, '').trim();
       }
 
-      // Check if label itself was styled (the label letter is in fullText but we detect via isCorrectMarked)
       options.push({ label, text: optText, correct });
     } else {
-      // Non-option line
       if (inOptions && options.length >= 2) {
-        // We had options, now non-option → new question block starts
         flushQuestion();
       }
       qLines.push(text);
     }
   }
-  flushQuestion(); // final flush
+  flushQuestion();
 
   return questions;
 };
@@ -593,6 +663,9 @@ LƯU Ý QUAN TRỌNG:
 - Mỗi w:p là một đoạn văn. Mỗi w:r là một run trong đoạn.
 - Chỉ cần MỘT run trong đoạn option có màu đỏ/gạch chân → cả dòng option đó là đáp án đúng
 - Nếu chỉ label "C." được đánh màu đỏ → vẫn là đáp án đúng
+- **LAYOUT NGANG**: Nhiều câu hỏi có 4 options A/B/C/D nằm trên CÙNG MỘT w:p (đoạn văn), cách nhau bằng tab/space. Hãy tách chúng thành 4 options riêng biệt.
+  Ví dụ: một w:p chứa text "A. Ngà voi và sừng tê giác. B. Cánh chim và cánh côn trùng. C. Cánh dơi và tay người. D. Voi voi và vòi bạch tuộc."
+  → 4 options riêng, đáp án là option nào có run được underline/đỏ trong đoạn đó
 - Nếu KHÔNG tìm thấy marker nào → correct=false cho tất cả (tuyệt đối KHÔNG đoán)
 
 Trả về JSON array (chỉ JSON thuần, không markdown backtick, không giải thích):
