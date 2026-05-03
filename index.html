@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>QuizLuyện Pro v2</title>
-<script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+<title>QuizLuyện Pro</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
@@ -20,9 +20,12 @@ tailwind.config = {
       "surface-container":"#f0ecf9","surface-container-high":"#eae6f4","surface-container-highest":"#e4e1ee",
       "on-surface":"#1b1b24","on-surface-variant":"#464555",
       "outline":"#777587","outline-variant":"#c7c4d8",
-      "error":"#ba1a1a",
+      "error":"#ba1a1a","error-container":"#ffdad6",
       "tertiary-fixed":"#ffdbcc","on-tertiary-fixed":"#351000",
       "correct":"#059669","wrong":"#dc2626",
+    },
+    spacing:{
+      "gutter":"24px","xl":"32px","md":"16px","xs":"4px","sm":"8px","lg":"24px","xxl":"48px"
     }
   }}
 }
@@ -30,11 +33,17 @@ tailwind.config = {
 <style>
 .material-symbols-outlined{font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24}
 body{font-family:'Inter',sans-serif}
+
+/* Drop zone */
+.drop-zone{position:relative}
 .drop-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
 .drop-zone.dragover{border-color:#4f46e5!important;background:#eef2ff!important}
-.opt-tile{transition:all .15s;cursor:pointer}
-.opt-tile:hover:not([disabled]){border-color:#4f46e5!important;background:#eef2ff!important}
+
+/* Option tiles — EduQuiz style */
+.opt-tile{transition:all .2s;cursor:pointer;border:2px solid #e2e8f0}
+.opt-tile:hover:not([disabled]){border-color:#c3c0ff!important;background:#f5f2ff!important}
 .opt-tile:hover:not([disabled]) .opt-lbl{background:#e2dfff!important;color:#3525cd!important}
+.opt-tile.selected{border-color:#4f46e5!background:#4f46e5/5}
 .opt-tile.correct{border-color:#059669!important;background:#f0fdf4!important}
 .opt-tile.correct .opt-lbl{background:#059669!important;color:white!important}
 .opt-tile.correct .opt-text{text-decoration:underline;text-decoration-color:#059669;text-underline-offset:3px}
@@ -42,14 +51,34 @@ body{font-family:'Inter',sans-serif}
 .opt-tile.wrong .opt-lbl{background:#dc2626!important;color:white!important}
 .opt-tile.wrong .opt-text{text-decoration:line-through;color:#dc2626}
 .opt-tile[disabled]{cursor:default}
-.nav-btn.done{background:#4648d4!important;color:white!important}
+
+/* Nav buttons */
+.nav-btn{transition:all .15s}
+.nav-btn.done{background:#4648d4!important;color:white!important;border-color:#4648d4!important}
+
+/* Progress bar */
 .prog-bar{transition:width .5s cubic-bezier(.4,0,.2,1)}
+
+/* Screens */
 #screen-upload,#screen-quiz,#screen-result{display:none}
 @media(max-width:1023px){#sidebar{display:none!important}}
+
+/* Toast */
 #toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(16px);background:#1e1b4b;color:white;border-radius:12px;padding:11px 24px;font-size:14px;font-weight:600;opacity:0;transition:all .3s;pointer-events:none;z-index:9999}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* Spinner */
 @keyframes spin{to{transform:rotate(360deg)}}
 .spin{animation:spin .7s linear infinite}
+
+/* Raised card */
+.raised-card{background:#fff;box-shadow:0 10px 25px rgba(79,70,229,.08);border-radius:16px}
+
+/* Collapsible tooltip */
+.tooltip-btn{width:28px;height:28px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:all .2s;flex-shrink:0}
+.tooltip-panel{max-height:0;overflow:hidden;transition:max-height .3s ease}
+.tooltip-panel.open{max-height:500px}
+
 textarea{font-family:'Inter',sans-serif}
 textarea:focus{outline:none}
 </style>
@@ -62,10 +91,10 @@ textarea:focus{outline:none}
 </div>
 
 <!-- HEADER -->
-<header class="bg-white/80 backdrop-blur-md border-b border-outline-variant shadow-sm sticky top-1 z-40">
+<header class="bg-slate-50/80 backdrop-blur-md border-b border-slate-200 shadow-sm sticky top-1 z-40">
   <div class="flex justify-between items-center w-full px-6 py-3">
     <div class="flex items-center gap-3">
-      <div class="w-9 h-9 bg-primary-container rounded-xl flex items-center justify-center">
+      <div class="w-9 h-9 bg-primary-container rounded-xl flex items-center justify-center shadow-sm">
         <span class="material-symbols-outlined text-white text-[20px]">quiz</span>
       </div>
       <span class="text-lg font-black text-primary tracking-tight">QuizLuyện Pro</span>
@@ -82,7 +111,7 @@ textarea:focus{outline:none}
           <span class="material-symbols-outlined text-[16px]">check_circle</span>
           <span id="hdr-right">0</span>&nbsp;/&nbsp;<span id="hdr-total">0</span>
         </div>
-        <button onclick="showUpload()" class="text-sm font-semibold text-on-surface-variant border border-outline-variant rounded-lg px-4 py-1.5 hover:bg-surface-container transition-colors">← Đề mới</button>
+        <button onclick="showUpload()" class="text-sm font-semibold text-on-surface-variant border border-slate-200 rounded-lg px-4 py-1.5 hover:bg-slate-100 transition-colors">← Đề mới</button>
       </div>
     </div>
   </div>
@@ -90,70 +119,93 @@ textarea:focus{outline:none}
 
 <!-- ══ UPLOAD ══ -->
 <div id="screen-upload">
-  <main class="max-w-4xl mx-auto w-full px-6 py-12">
+  <main class="max-w-3xl mx-auto w-full px-6 py-12">
+
+    <!-- Hero -->
     <div class="text-center mb-10">
       <span class="inline-block px-4 py-1 bg-primary-fixed text-primary rounded-full text-xs font-bold uppercase tracking-widest mb-4">Luyện trắc nghiệm thông minh</span>
       <h1 class="text-4xl font-black text-on-surface leading-tight mb-3">Tải đề thi lên,<br><span class="text-primary-container">luyện ngay!</span></h1>
-      <p class="text-on-surface-variant text-base">Engine mới: đọc thẳng XML gốc từ DOCX — nhận diện màu đỏ &amp; gạch chân chính xác 100%</p>
+      <p class="text-on-surface-variant text-sm">Engine v2 đọc thẳng XML gốc DOCX — nhận diện màu đỏ &amp; gạch chân chính xác</p>
     </div>
 
-    <!-- Info bar -->
-    <div class="flex items-start gap-3 bg-primary-fixed/60 border border-primary-fixed-dim rounded-xl px-4 py-3 mb-6 text-sm">
-      <span class="material-symbols-outlined text-primary text-[20px] mt-0.5">info</span>
-      <div class="text-on-surface-variant leading-relaxed">
-        <strong class="text-on-surface">Engine v2 — Đọc thẳng XML gốc của Word (bỏ mammoth):</strong>
-        chữ <strong class="text-red-600">màu đỏ</strong> (w:color) · <u>gạch chân</u> (w:u) · tô nền đỏ (w:highlight/w:shd) · label A/B/C/D đỏ · dấu <code class="bg-white px-1 rounded border">*</code><br>
-        <span class="text-xs text-on-surface-variant">JSZip đọc word/document.xml trực tiếp → Claude AI xác nhận đáp án · Đáp án <strong>xáo trộn</strong> mỗi lần làm</span>
+    <!-- Info bars — collapsible -->
+    <div class="flex gap-2 mb-6">
+      <!-- Engine info -->
+      <div class="flex-1 raised-card border border-slate-100 overflow-hidden">
+        <button onclick="toggleTip('tip-engine')" class="w-full flex items-center gap-2 px-4 py-3 hover:bg-slate-50 transition-colors">
+          <div class="tooltip-btn bg-primary-fixed text-primary">
+            <span class="material-symbols-outlined text-[16px]">info</span>
+          </div>
+          <span class="text-sm font-semibold text-on-surface flex-1 text-left">Engine v2 — Đọc XML gốc của Word</span>
+          <span class="material-symbols-outlined text-[18px] text-on-surface-variant transition-transform" id="tip-engine-arrow">expand_more</span>
+        </button>
+        <div class="tooltip-panel" id="tip-engine">
+          <div class="px-4 pb-4 text-sm text-on-surface-variant leading-relaxed border-t border-slate-100 pt-3">
+            <strong class="text-on-surface">JSZip đọc trực tiếp word/document.xml:</strong><br>
+            chữ <strong class="text-red-600">màu đỏ</strong> (w:color) · <u>gạch chân</u> (w:u) · tô nền đỏ (w:highlight/w:shd) · label A/B/C/D đỏ · dấu <code class="bg-slate-100 px-1 rounded">*</code><br>
+            <span class="text-xs mt-1 block">JSZip đọc word/document.xml → Claude AI xác nhận đáp án · Đáp án <strong>xáo trộn</strong> mỗi lần làm</span>
+          </div>
+        </div>
+      </div>
+      <!-- Hint -->
+      <div class="flex-1 raised-card border border-amber-100 overflow-hidden">
+        <button onclick="toggleTip('tip-hint')" class="w-full flex items-center gap-2 px-4 py-3 hover:bg-amber-50 transition-colors">
+          <div class="tooltip-btn bg-amber-50 text-amber-600">
+            <span class="material-symbols-outlined text-[16px]">lightbulb</span>
+          </div>
+          <span class="text-sm font-semibold text-on-surface flex-1 text-left">Cách đánh dấu đáp án đúng</span>
+          <span class="material-symbols-outlined text-[18px] text-on-surface-variant transition-transform" id="tip-hint-arrow">expand_more</span>
+        </button>
+        <div class="tooltip-panel" id="tip-hint">
+          <div class="px-4 pb-4 text-sm text-amber-900 leading-loose border-t border-amber-100 pt-3">
+            • Tô <strong class="text-red-600">chữ màu đỏ</strong> vào đáp án đúng (bất kỳ phần nào)<br>
+            • <u>Gạch chân</u> đáp án đúng<br>
+            • Tô nền đỏ / highlight đỏ vào dòng đáp án<br>
+            • Tô màu đỏ riêng chữ <strong>A / B / C / D</strong> đứng trước đáp án đúng
+          </div>
+        </div>
       </div>
     </div>
 
     <!-- Drop zone -->
-    <div class="relative drop-zone border-2 border-dashed border-outline-variant rounded-2xl p-10 text-center bg-surface-container-low hover:border-primary-container transition-colors mb-4 cursor-pointer" id="drop1">
-      <span class="material-symbols-outlined text-5xl text-on-surface-variant mb-3 block">upload_file</span>
-      <h3 class="text-lg font-bold text-on-surface mb-1">Kéo thả hoặc click chọn file</h3>
-      <p class="text-sm text-on-surface-variant leading-relaxed">
-        Hỗ trợ <strong>.docx</strong> và <strong>.txt</strong><br>
-        File Word: đánh dấu đáp án bằng <strong class="text-red-600">chữ đỏ</strong> / <u>gạch chân</u> / label đỏ
-      </p>
-      <div id="f1-badge" class="hidden mt-3 inline-flex items-center gap-2 bg-primary-fixed text-primary border border-primary-fixed-dim rounded-full px-4 py-1.5 text-sm font-bold">
-        <span class="material-symbols-outlined text-[16px]">check_circle</span>
-        <span id="f1-name"></span>
+    <div class="raised-card border-2 border-dashed border-slate-200 hover:border-primary-fixed-dim transition-colors mb-4 cursor-pointer drop-zone" id="drop1">
+      <div class="p-10 text-center">
+        <div class="w-16 h-16 bg-primary-fixed rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <span class="material-symbols-outlined text-primary text-[32px]">upload_file</span>
+        </div>
+        <h3 class="text-lg font-bold text-on-surface mb-1">Kéo thả hoặc click chọn file</h3>
+        <p class="text-sm text-on-surface-variant">Hỗ trợ <strong>.docx</strong> và <strong>.txt</strong></p>
+        <div id="f1-badge" class="hidden mt-4 inline-flex items-center gap-2 bg-primary-fixed text-primary border border-primary-fixed-dim rounded-full px-4 py-1.5 text-sm font-bold">
+          <span class="material-symbols-outlined text-[16px]">check_circle</span>
+          <span id="f1-name"></span>
+        </div>
       </div>
       <input type="file" id="file1" accept=".txt,.docx">
     </div>
 
     <!-- Divider -->
     <div class="flex items-center gap-3 text-on-surface-variant text-xs font-semibold mb-4">
-      <div class="flex-1 h-px bg-outline-variant"></div>
+      <div class="flex-1 h-px bg-slate-200"></div>
       hoặc dán nhanh (đáp án đúng kết thúc bằng *)
-      <div class="flex-1 h-px bg-outline-variant"></div>
+      <div class="flex-1 h-px bg-slate-200"></div>
     </div>
 
     <!-- Paste -->
-    <div class="bg-surface-container-lowest border border-outline-variant rounded-2xl p-5 mb-5">
+    <div class="raised-card border border-slate-100 p-5 mb-5">
       <label class="text-xs font-bold text-on-surface-variant uppercase tracking-widest block mb-3">✎ Dán câu hỏi</label>
       <textarea id="raw-text" rows="6"
-        class="w-full bg-surface-container text-on-surface border border-outline-variant rounded-xl px-4 py-3 text-sm resize-y focus:border-primary-container focus:ring-2 focus:ring-primary-fixed"
-        placeholder="— Có prefix (cũ) —&#10;Câu 1. Thủ đô Việt Nam là?&#10;A. TP.HCM&#10;B. Hà Nội*&#10;C. Đà Nẵng&#10;D. Huế&#10;&#10;— Không prefix (mới) —&#10;Thủ đô Pháp là gì?&#10;A. London&#10;B. Berlin&#10;C. Paris*&#10;D. Rome"></textarea>
+        class="w-full bg-surface-container text-on-surface border border-outline-variant rounded-xl px-4 py-3 text-sm resize-y focus:border-primary-container focus:ring-2 focus:ring-primary-fixed transition-colors"
+        placeholder="— Có prefix —&#10;Câu 1. Thủ đô Việt Nam là?&#10;A. TP.HCM&#10;B. Hà Nội*&#10;C. Đà Nẵng&#10;D. Huế&#10;&#10;— Không prefix —&#10;Thủ đô Pháp là gì?&#10;A. London&#10;B. Berlin&#10;C. Paris*&#10;D. Rome"></textarea>
     </div>
 
-    <!-- Hint -->
-    <div class="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 text-sm text-amber-900 leading-loose mb-6">
-      <strong class="text-amber-700">💡 Cách đánh dấu đáp án đúng trong file Word:</strong><br>
-      • Tô <strong class="text-red-600">chữ màu đỏ</strong> vào đáp án đúng (bất kỳ phần nào trong dòng)<br>
-      • <u>Gạch chân</u> đáp án đúng<br>
-      • Tô nền đỏ / highlight đỏ vào dòng đáp án đúng<br>
-      • Tô màu đỏ riêng chữ <strong>A / B / C / D</strong> đứng trước đáp án đúng
-    </div>
-
-    <!-- AI loading -->
+    <!-- Loading -->
     <div id="ai-loading" class="hidden items-center gap-3 text-primary text-sm font-semibold mb-4">
       <span class="material-symbols-outlined spin text-[20px]">autorenew</span>
       <span id="ai-loading-msg">Đang xử lý...</span>
     </div>
 
     <button onclick="startQuiz()" id="btn-start"
-      class="w-full py-4 bg-primary-container text-white rounded-2xl font-bold text-base shadow-lg shadow-indigo-200 hover:opacity-90 active:scale-[.99] transition-all flex items-center justify-center gap-2">
+      class="w-full py-4 bg-primary text-white rounded-2xl font-bold text-base shadow-lg shadow-indigo-200 hover:opacity-90 active:scale-[.99] transition-all flex items-center justify-center gap-2">
       <span class="material-symbols-outlined text-[20px]">rocket_launch</span>
       Bắt đầu luyện tập
     </button>
@@ -163,28 +215,32 @@ textarea:focus{outline:none}
 <!-- ══ QUIZ ══ -->
 <div id="screen-quiz">
   <main class="max-w-[1280px] mx-auto w-full px-6 py-10 flex gap-10">
+    <!-- Question area -->
     <div class="flex-1 max-w-3xl mx-auto lg:mx-0">
+      <!-- Progress header -->
       <div class="mb-6">
         <div class="flex justify-between items-center mb-2">
           <span class="text-xs font-black text-primary uppercase tracking-widest" id="q-label">Câu 1 / 0</span>
           <span class="text-xs text-on-surface-variant font-semibold" id="q-prog-txt">0 / 0</span>
         </div>
-        <div class="h-2 bg-surface-container rounded-full overflow-hidden">
+        <div class="h-2 bg-slate-200 rounded-full overflow-hidden">
           <div class="h-full bg-primary-container rounded-full prog-bar" id="q-prog-bar" style="width:0%"></div>
         </div>
       </div>
       <div id="q-wrap"></div>
     </div>
+
+    <!-- Sidebar -->
     <aside id="sidebar" class="w-72 hidden lg:block">
-      <div class="bg-surface-container-lowest rounded-2xl border border-outline-variant p-5 sticky top-20">
+      <div class="raised-card border border-slate-100 p-5 sticky top-20">
         <div class="flex items-center justify-between mb-4">
           <h3 class="text-base font-bold text-on-surface">Danh sách câu</h3>
           <span class="text-xs text-on-surface-variant font-semibold" id="sb-prog">0/0</span>
         </div>
         <div class="grid grid-cols-5 gap-2 mb-5" id="nav-grid"></div>
-        <div class="space-y-2 pt-4 border-t border-outline-variant text-xs font-medium">
+        <div class="space-y-2 pt-4 border-t border-slate-100 text-xs font-medium">
           <div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-secondary"></div><span class="text-on-surface-variant">Đã trả lời</span></div>
-          <div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-surface-container-low border border-outline-variant"></div><span class="text-on-surface-variant">Chưa trả lời</span></div>
+          <div class="flex items-center gap-2"><div class="w-3 h-3 rounded bg-slate-100 border border-slate-300"></div><span class="text-on-surface-variant">Chưa trả lời</span></div>
         </div>
       </div>
     </aside>
@@ -194,11 +250,21 @@ textarea:focus{outline:none}
 <!-- ══ RESULT ══ -->
 <div id="screen-result">
   <main class="max-w-lg mx-auto w-full px-6 py-16 text-center">
-    <div class="bg-surface-container-lowest rounded-3xl border border-outline-variant p-12 relative overflow-hidden shadow-xl shadow-indigo-100">
+    <div class="raised-card border border-slate-100 p-12 relative overflow-hidden">
       <div class="absolute top-0 left-1/2 -translate-x-1/2 w-56 h-56 bg-primary-fixed/40 rounded-full blur-3xl -mt-12 pointer-events-none"></div>
       <div class="relative">
-        <div class="text-6xl mb-5" id="r-emoji">🎉</div>
-        <div class="text-6xl font-black text-primary-container mb-2" id="r-score">0/0</div>
+        <!-- Score ring -->
+        <div class="relative w-40 h-40 mx-auto mb-6">
+          <svg class="w-full h-full -rotate-90" viewBox="0 0 100 100">
+            <circle cx="50" cy="50" r="44" fill="transparent" stroke="#e2e8f0" stroke-width="8"/>
+            <circle cx="50" cy="50" r="44" fill="transparent" stroke="#4f46e5" stroke-width="8"
+              stroke-dasharray="276.46" id="r-ring" stroke-dashoffset="276.46" style="transition:stroke-dashoffset .8s ease"/>
+          </svg>
+          <div class="absolute inset-0 flex flex-col items-center justify-center">
+            <span class="text-4xl font-black text-primary-container" id="r-score">0/0</span>
+          </div>
+        </div>
+        <div class="text-3xl mb-2" id="r-emoji">🎉</div>
         <p class="text-on-surface-variant text-sm mb-8">Kết quả luyện tập</p>
         <div class="flex justify-center gap-10 mb-10">
           <div><div class="text-3xl font-black text-correct" id="r-c">0</div><div class="text-xs text-on-surface-variant uppercase tracking-wider mt-1">Câu đúng</div></div>
@@ -206,8 +272,8 @@ textarea:focus{outline:none}
           <div><div class="text-3xl font-black text-amber-500" id="r-p">0%</div><div class="text-xs text-on-surface-variant uppercase tracking-wider mt-1">Tỉ lệ</div></div>
         </div>
         <div class="flex gap-3 justify-center">
-          <button onclick="retryQuiz()" class="px-8 py-3 bg-primary-container text-white rounded-xl font-bold text-sm shadow-md hover:opacity-90 active:scale-95 transition-all">🔄 Làm lại</button>
-          <button onclick="showUpload()" class="px-6 py-3 border border-outline-variant text-on-surface-variant rounded-xl font-semibold text-sm hover:bg-surface-container transition-colors">📂 Đề mới</button>
+          <button onclick="retryQuiz()" class="px-8 py-3 bg-primary text-white rounded-xl font-bold text-sm shadow-md hover:opacity-90 active:scale-95 transition-all">🔄 Làm lại</button>
+          <button onclick="showUpload()" class="px-6 py-3 border border-slate-200 text-on-surface-variant rounded-xl font-semibold text-sm hover:bg-slate-50 transition-colors">📂 Đề mới</button>
         </div>
       </div>
     </div>
@@ -217,18 +283,27 @@ textarea:focus{outline:none}
 <div id="toast"></div>
 
 <script>
-// ════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════
 // CONFIG
-// ════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════
 const CLAUDE_URL = 'https://api.anthropic.com/v1/messages';
 const CLAUDE_MODEL = 'claude-sonnet-4-20250514';
-
 let questions = [], rawQuestions = [], answered = 0, scoreR = 0, scoreW = 0;
-let lastDocxXml = ''; // Store raw XML from word/document.xml
+let lastDocxXml = '';
 
-// ════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════
+// COLLAPSIBLE TOOLTIPS
+// ════════════════════════════════════════════════════
+const toggleTip = (id) => {
+  const panel = document.getElementById(id);
+  const arrow = document.getElementById(id + '-arrow');
+  const open = panel.classList.toggle('open');
+  arrow.style.transform = open ? 'rotate(180deg)' : '';
+};
+
+// ════════════════════════════════════════════════════
 // TOAST
-// ════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════
 const $toast = document.getElementById('toast');
 const toast = (msg, dur = 3000) => {
   $toast.textContent = msg;
@@ -236,181 +311,127 @@ const toast = (msg, dur = 3000) => {
   setTimeout(() => $toast.classList.remove('show'), dur);
 };
 
-// ════════════════════════════════════════════════════════════
-// LOADING STATE
-// ════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════
+// LOADING
+// ════════════════════════════════════════════════════
 const setLoading = (active, msg = '') => {
   const el = document.getElementById('ai-loading');
   const btn = document.getElementById('btn-start');
   if (active) {
     document.getElementById('ai-loading-msg').textContent = msg;
-    el.classList.remove('hidden');
-    el.classList.add('flex');
-    btn.disabled = true;
-    btn.classList.add('opacity-60');
+    el.classList.remove('hidden'); el.classList.add('flex');
+    btn.disabled = true; btn.classList.add('opacity-60');
   } else {
-    el.classList.add('hidden');
-    el.classList.remove('flex');
-    btn.disabled = false;
-    btn.classList.remove('opacity-60');
+    el.classList.add('hidden'); el.classList.remove('flex');
+    btn.disabled = false; btn.classList.remove('opacity-60');
   }
 };
 
-// ════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════
 // SCREEN MANAGER
-// ════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════
 const showScreen = (id) => {
-  ['screen-upload', 'screen-quiz', 'screen-result'].forEach(s =>
+  ['screen-upload','screen-quiz','screen-result'].forEach(s =>
     document.getElementById(s).style.display = s === id ? 'block' : 'none'
   );
   document.getElementById('quiz-controls').classList.toggle('hidden', id !== 'screen-quiz');
 };
 
-// ════════════════════════════════════════════════════════════
-// APPEND TO TEXTAREA
-// ════════════════════════════════════════════════════════════
 const appendText = (t) => {
   const ta = document.getElementById('raw-text');
   ta.value = ta.value.trim() ? ta.value.trim() + '\n\n' + t : t;
 };
 
-// ════════════════════════════════════════════════════════════
-// RED COLOR DETECTION for XML w:color values
-// Word uses hex values WITHOUT '#': FF0000, C00000, A00000, etc.
-// Rule: R high, G+B low
-// ════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════
+// RED COLOR DETECTION
+// ════════════════════════════════════════════════════
 const isRedHex = (hex) => {
   if (!hex || hex === 'auto' || hex.length < 6) return false;
-  hex = hex.replace('#', '').toLowerCase();
+  hex = hex.replace('#','').toLowerCase();
   if (hex.length === 6) {
-    const r = parseInt(hex.slice(0, 2), 16);
-    const g = parseInt(hex.slice(2, 4), 16);
-    const b = parseInt(hex.slice(4, 6), 16);
-    // Permissive: R dominates, G and B are low
+    const r = parseInt(hex.slice(0,2),16), g = parseInt(hex.slice(2,4),16), b = parseInt(hex.slice(4,6),16);
     return r > 140 && g < 110 && b < 110;
   }
   return false;
 };
+const RED_HIGHLIGHTS = new Set(['red','darkRed']);
 
-// Red highlight names from Word
-const RED_HIGHLIGHTS = new Set(['red', 'darkRed']);
-
-// ════════════════════════════════════════════════════════════
-// JSZIP DOCX XML PARSER — THE REAL ENGINE
-//
-// Reads word/document.xml directly. Parses XML to extract:
-//   - w:r (runs) with w:rPr properties:
-//     * w:color w:val="FF0000" → red text
-//     * w:u w:val="single/double/..." → underline
-//     * w:highlight w:val="red/darkRed" → highlighted
-//   - w:p (paragraphs) with shading:
-//     * w:shd w:fill="FF0000" → red background
-//   - w:pPr/w:rPr for paragraph-level styling
-//
-// Returns array of "styled lines" — each line knows:
-//   { text: string, hasRed: bool, hasUnderline: bool }
-// ════════════════════════════════════════════════════════════
-
-// Parse a single w:rPr XML node string for color/underline markers
+// ════════════════════════════════════════════════════
+// XML RUN/PARA PROPS
+// ════════════════════════════════════════════════════
 const parseRunProps = (rPrXml) => {
-  if (!rPrXml) return { red: false, underline: false, highlight: false };
-
-  // w:color w:val="XXXXXX"
-  let red = false;
-  const colorMatch = rPrXml.match(/w:color[^>]*w:val="([^"]+)"/);
-  if (colorMatch && isRedHex(colorMatch[1])) red = true;
-
-  // w:highlight w:val="red" or "darkRed"
-  const hlMatch = rPrXml.match(/w:highlight[^>]*w:val="([^"]+)"/);
-  if (hlMatch && RED_HIGHLIGHTS.has(hlMatch[1])) red = true;
-
-  // w:u (underline) — any value other than "none"
-  let underline = false;
-  const uMatch = rPrXml.match(/w:u[^>]*w:val="([^"]+)"/);
-  if (uMatch && uMatch[1] !== 'none') underline = true;
-
-  // Also check for <w:u/> self-closing (implicit single underline)
+  if (!rPrXml) return { red: false, underline: false };
+  let red = false, underline = false;
+  const colorM = rPrXml.match(/w:color[^>]*w:val="([^"]+)"/);
+  if (colorM && isRedHex(colorM[1])) red = true;
+  const hlM = rPrXml.match(/w:highlight[^>]*w:val="([^"]+)"/);
+  if (hlM && RED_HIGHLIGHTS.has(hlM[1])) red = true;
+  const uM = rPrXml.match(/w:u[^>]*w:val="([^"]+)"/);
+  if (uM && uM[1] !== 'none') underline = true;
   if (!underline && /<w:u\s*\/>/.test(rPrXml)) underline = true;
-
   return { red, underline };
 };
 
-// Parse paragraph shading for red background
 const parseParaShd = (pXml) => {
-  // w:shd in w:pPr
-  const shdMatch = pXml.match(/w:shd[^>]*w:fill="([^"]+)"/);
-  if (shdMatch && isRedHex(shdMatch[1])) return true;
-  return false;
+  const m = pXml.match(/w:shd[^>]*w:fill="([^"]+)"/);
+  return m && isRedHex(m[1]);
 };
 
-/**
- * Main DOCX XML parser.
- * Returns array of: { text: string, isCorrectMarked: bool }
- *
- * KEY FIX: Handles horizontal/inline option layout.
- * In Word, "A. xxx   B. xxx   C. xxx   D. xxx" can be ONE w:p.
- * We parse per-run with style info, then split inline options.
- */
-
-// Regex to detect inline option boundaries WITHIN a paragraph text
-// e.g. "A. foo   B. bar   C. baz*   D. qux"
-const INLINE_OPT_SPLIT = /(?<!\w)(?=[A-Da-d][\.\)])/g;
-const INLINE_OPT_START = /^([A-Da-d])[\.\)]\s*/;
-
-/**
- * Split a paragraph that may contain multiple inline options.
- * Returns array of { text, isCorrectMarked } segments.
- *
- * For each segment, isCorrectMarked = true if:
- *   - Any styled run (red/underline) falls within the character range of that segment
- *   - OR the segment contains '*'
- */
+// ════════════════════════════════════════════════════
+// SPLIT INLINE OPTIONS — FIX: only A-D, strict boundaries
+// Bug fix: old regex matched A-D AND a-d AND E/F etc.
+// New: only uppercase A,B,C,D at word boundary
+// ════════════════════════════════════════════════════
 const splitInlineOptions = (paraText, paraMarked, runSegments) => {
-  // Count how many A./B./C./D. pattern occur in this paragraph
-  const matches = [...paraText.matchAll(/(?<![A-Za-z])([A-Da-d])[\.\)]\s/g)];
+  // STRICT: only A, B, C, D (uppercase or as first char of para)
+  // Match pattern: optional spaces, then [A-D] followed by . or )
+  // Must not be preceded by a letter (word boundary)
+  const matches = [...paraText.matchAll(/(?<![A-Za-z])([ABCD])[\.\)]\s/g)];
 
-  // If only 1 or 0 option labels → not a horizontal layout, return as-is
-  if (matches.length < 2) {
+  // Need at least 2 DISTINCT option labels to consider inline layout
+  const labels = new Set(matches.map(m => m[1]));
+  if (labels.size < 2) {
     return [{ text: paraText, isCorrectMarked: paraMarked }];
   }
 
-  // Split text at each label boundary
-  const labelPositions = matches.map(m => m.index);
-  const segments = [];
-
-  for (let i = 0; i < labelPositions.length; i++) {
-    const start = labelPositions[i];
-    const end = i + 1 < labelPositions.length ? labelPositions[i + 1] : paraText.length;
-    segments.push({ text: paraText.slice(start, end).trim(), start, end });
+  // Additional guard: paragraph must START with or contain A. as first option
+  // This prevents splitting on e.g. "...Câu B. là đúng nhất..."
+  const firstLabelIdx = paraText.search(/(?<![A-Za-z])[ABCD][\.\)]\s/);
+  if (firstLabelIdx > 50) {
+    // Options don't start near the beginning — probably not inline options
+    return [{ text: paraText, isCorrectMarked: paraMarked }];
   }
 
-  // Build a character-position map of "which chars are styled"
-  // by walking runSegments in order and tracking offsets
-  const styledRanges = []; // [{from, to}] in paraText coordinate
+  // Split at each label boundary
+  const positions = matches.map(m => m.index);
+  const segments = positions.map((start, i) => {
+    const end = i + 1 < positions.length ? positions[i + 1] : paraText.length;
+    return { text: paraText.slice(start, end).trim(), start, end };
+  });
+
+  // Build styled char ranges from runs
+  const styledRanges = [];
   let pos = 0;
   for (const run of runSegments) {
-    const runRaw = run.text; // trimmed run text
-    // Find this run text in paraText starting from pos
-    const idx = paraText.indexOf(runRaw, pos);
-    if (idx !== -1 && run.marked) {
-      styledRanges.push({ from: idx, to: idx + runRaw.length });
+    if (!run.text) continue;
+    const idx = paraText.indexOf(run.text, pos);
+    if (idx !== -1) {
+      if (run.marked) styledRanges.push({ from: idx, to: idx + run.text.length });
+      pos = idx + run.text.length;
     }
-    if (idx !== -1) pos = idx + runRaw.length;
   }
 
   return segments.map(seg => {
-    // Check if any styled range overlaps with this segment's character range
     const isMarked = seg.text.includes('*') ||
       styledRanges.some(r => r.from < seg.end && r.to > seg.start);
-    return {
-      text: seg.text.replace(/\*/g, '').trim(),
-      isCorrectMarked: isMarked
-    };
+    return { text: seg.text.replace(/\*/g,'').trim(), isCorrectMarked: isMarked };
   });
 };
 
+// ════════════════════════════════════════════════════
+// PARSE DOCX XML
+// ════════════════════════════════════════════════════
 const parseDocxXml = (xmlString) => {
-  // Extract all <w:p>...</w:p> paragraphs
   const paragraphs = [];
   const paraRegex = /<w:p[ >][\s\S]*?<\/w:p>/g;
   let pMatch;
@@ -418,88 +439,56 @@ const parseDocxXml = (xmlString) => {
   while ((pMatch = paraRegex.exec(xmlString)) !== null) {
     const pXml = pMatch[0];
     let fullText = '';
-    let hasRed = false;
+    let hasRed = parseParaShd(pXml);
     let hasUnderline = false;
-    const runSegments = []; // Track per-run: { text, marked }
+    const runSegments = [];
 
-    // Check paragraph-level background shading
-    if (parseParaShd(pXml)) hasRed = true;
-
-    // Extract all runs <w:r>...</w:r>
     const runRegex = /<w:r[ >][\s\S]*?<\/w:r>/g;
     let rMatch;
-
     while ((rMatch = runRegex.exec(pXml)) !== null) {
       const rXml = rMatch[0];
-
-      // Get run properties
-      const rPrMatch = rXml.match(/<w:rPr>([\s\S]*?)<\/w:rPr>/);
-      const props = parseRunProps(rPrMatch ? rPrMatch[1] : '');
-
-      // Get text content from w:t
-      const tMatches = [...rXml.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)];
+      const rPrM = rXml.match(/<w:rPr>([\s\S]*?)<\/w:rPr>/);
+      const props = parseRunProps(rPrM ? rPrM[1] : '');
       let runText = '';
-      for (const tm of tMatches) runText += tm[1];
-
-      // w:tab → space
+      for (const tm of [...rXml.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)]) runText += tm[1];
       if (/<w:tab\s*\/>/.test(rXml)) runText += ' ';
-
       if (runText) {
         fullText += runText;
         const runMarked = props.red || props.underline;
         if (props.red) hasRed = true;
         if (props.underline) hasUnderline = true;
-        // Track this run for inline split analysis
         runSegments.push({ text: runText.trim(), marked: runMarked });
       }
     }
-
-    // Also extract text from w:ins (tracked insertions) — no style tracking
-    const insRegex = /<w:ins[\s\S]*?<\/w:ins>/g;
-    let insMatch;
-    while ((insMatch = insRegex.exec(pXml)) !== null) {
-      const insXml = insMatch[0];
-      for (const tm of insXml.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)) {
-        fullText += tm[1];
-      }
+    // w:ins
+    for (const im of [...pXml.matchAll(/<w:ins[\s\S]*?<\/w:ins>/g)]) {
+      for (const tm of [...im[0].matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)]) fullText += tm[1];
     }
 
     const text = fullText.trim();
     if (!text) continue;
-
     const paraMarked = hasRed || hasUnderline;
-
-    // Try to split inline options (horizontal layout)
-    const splitResult = splitInlineOptions(text, paraMarked, runSegments);
-
-    for (const seg of splitResult) {
-      if (seg.text) {
-        paragraphs.push({
-          text: seg.text,
-          isCorrectMarked: seg.isCorrectMarked || (splitResult.length === 1 && paraMarked)
-        });
-      }
+    const splits = splitInlineOptions(text, paraMarked, runSegments);
+    for (const seg of splits) {
+      if (seg.text) paragraphs.push({
+        text: seg.text,
+        isCorrectMarked: seg.isCorrectMarked || (splits.length === 1 && paraMarked)
+      });
     }
   }
-
   return paragraphs;
 };
 
-/**
- * Build quiz questions from parsed paragraphs.
- * After splitInlineOptions, each paragraph segment is either:
- *   - A question line (no A./B./C./D. prefix)
- *   - An option line (starts with A./B./C./D.)
- */
+// ════════════════════════════════════════════════════
+// BUILD QUESTIONS FROM PARAGRAPHS
+// ════════════════════════════════════════════════════
 const OPTION_LABEL_RE = /^([A-Da-d])[\.\)]\s*/;
 
 const buildQuestionsFromParagraphs = (paragraphs) => {
   const questions = [];
-  let qLines = [];
-  let options = [];
-  let inOptions = false;
+  let qLines = [], options = [], inOptions = false;
 
-  const flushQuestion = () => {
+  const flush = () => {
     if (options.length >= 2 && qLines.length > 0) {
       const question = qLines.join(' ').trim();
       const correctIdx = options.findIndex(o => o.correct);
@@ -507,72 +496,48 @@ const buildQuestionsFromParagraphs = (paragraphs) => {
         question,
         options: options.map(o => ({ label: o.label, text: o.text, correct: o.correct })),
         correct: correctIdx >= 0 ? correctIdx : -1,
-        answered: false,
-        userIdx: -1,
+        answered: false, userIdx: -1,
         hasNoAnswer: correctIdx < 0
       });
     }
-    qLines = [];
-    options = [];
-    inOptions = false;
+    qLines = []; options = []; inOptions = false;
   };
 
   for (const para of paragraphs) {
     const { text, isCorrectMarked } = para;
     const m = text.match(OPTION_LABEL_RE);
-
     if (m) {
       inOptions = true;
       const label = m[1].toUpperCase();
       let optText = text.slice(m[0].length).trim();
-
-      // Strip trailing label references like ". B." or "B." at end (artifact from inline split)
-      // e.g. "Cánh dơi và tay người." is clean, but sometimes trailing garbage appears
       optText = optText.replace(/\s+[A-Da-d][\.\)]\s*$/, '').trim();
-
-      // Check * marker
       let correct = isCorrectMarked;
-      if (optText.includes('*')) {
-        correct = true;
-        optText = optText.replace(/\*/g, '').trim();
-      }
-
+      if (optText.includes('*')) { correct = true; optText = optText.replace(/\*/g,'').trim(); }
       options.push({ label, text: optText, correct });
     } else {
-      if (inOptions && options.length >= 2) {
-        flushQuestion();
-      }
+      if (inOptions && options.length >= 2) flush();
       qLines.push(text);
     }
   }
-  flushQuestion();
-
+  flush();
   return questions;
 };
 
-// ════════════════════════════════════════════════════════════
-// JSZIP FILE READER
-// ════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════
+// JSZIP
+// ════════════════════════════════════════════════════
 const readDocxWithJSZip = async (arrayBuffer) => {
   const zip = await JSZip.loadAsync(arrayBuffer);
-
-  // Primary: word/document.xml
   const docFile = zip.file('word/document.xml');
-  if (!docFile) throw new Error('Không tìm thấy word/document.xml trong file DOCX');
-
-  const xmlContent = await docFile.async('string');
-  return xmlContent;
+  if (!docFile) throw new Error('Không tìm thấy word/document.xml');
+  return await docFile.async('string');
 };
 
-// Extract plain text from XML for AI fallback
-const xmlToPlainText = (xmlString) => {
-  const paragraphs = parseDocxXml(xmlString);
-  return paragraphs.map(p => p.text).join('\n');
-};
+const xmlToPlainText = (xmlString) => parseDocxXml(xmlString).map(p => p.text).join('\n');
 
-// ════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════
 // FILE HANDLER
-// ════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════
 const handleFile = (file, badge, nameEl) => {
   if (file.name.toLowerCase().endsWith('.docx')) {
     const r = new FileReader();
@@ -581,20 +546,13 @@ const handleFile = (file, badge, nameEl) => {
         setLoading(true, 'Đang đọc file DOCX bằng JSZip...');
         const xmlContent = await readDocxWithJSZip(e.target.result);
         lastDocxXml = xmlContent;
-
-        // Extract plain text for textarea preview
-        const plainText = xmlToPlainText(xmlContent).trim();
-        appendText(plainText);
-
+        appendText(xmlToPlainText(xmlContent).trim());
         nameEl.textContent = file.name;
         badge.classList.remove('hidden');
-        toast('✅ Đã đọc DOCX (XML gốc): ' + file.name);
+        toast('✅ Đã đọc DOCX: ' + file.name);
       } catch (err) {
-        toast('❌ Lỗi đọc DOCX: ' + err.message);
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
+        toast('❌ Lỗi DOCX: ' + err.message);
+      } finally { setLoading(false); }
     };
     r.readAsArrayBuffer(file);
   } else {
@@ -622,332 +580,193 @@ const setupDrop = (dropId, inputId, badgeId, nameId) => {
   });
   inp.addEventListener('change', () => { if (inp.files[0]) handleFile(inp.files[0], badge, name); });
 };
-setupDrop('drop1', 'file1', 'f1-badge', 'f1-name');
+setupDrop('drop1','file1','f1-badge','f1-name');
 
-// ════════════════════════════════════════════════════════════
-// CLAUDE AI — XML MARKUP READER
-// Send raw XML snippet to Claude. Claude reads w:color, w:u etc.
-// This is the most reliable method for complex documents.
-// ════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════
+// CLAUDE AI — XML READER
+// ════════════════════════════════════════════════════
 const aiParseFromXml = async (xmlString, plainText) => {
-  setLoading(true, 'Claude AI đang đọc XML gốc từ DOCX — xác định đáp án từ w:color/w:u...');
-
-  // Trim XML to avoid token overflow (keep first 40k chars)
+  setLoading(true, 'Claude AI đang đọc XML gốc DOCX...');
   const xmlSnippet = xmlString.slice(0, 40000);
   const textSnippet = plainText.slice(0, 15000);
+  const prompt = `Bạn là parser câu hỏi trắc nghiệm. Đọc XML OOXML dưới đây, xác định đáp án đúng từ markup.
 
-  const prompt = `Bạn là parser câu hỏi trắc nghiệm chuyên nghiệp. Đọc XML gốc (OOXML/DOCX) dưới đây và xác định đáp án đúng CHỈ DỰA VÀO XML MARKUP.
+DẤU HIỆU ĐÁP ÁN ĐÚNG:
+1. w:u (gạch chân): <w:u w:val="single"/> trong w:rPr
+2. w:color đỏ: R>8C, G<64, B<64 (ví dụ FF0000, C00000, A00000)
+3. w:highlight: <w:highlight w:val="red"/> hoặc "darkRed"
+4. w:shd đỏ trong w:pPr: <w:shd w:fill="FF0000"/>
+5. Dấu * trong w:t
 
-CÁC DẤU HIỆU ĐÁP ÁN ĐÚNG TRONG XML OOXML (theo thứ tự ưu tiên):
+LƯU Ý: Layout ngang — nhiều options A/B/C/D có thể nằm trong 1 w:p. Tách chúng ra.
+Nếu không có marker → correct=false cho tất cả (KHÔNG đoán).
 
-1. **Gạch chân (w:u)** trong w:rPr của run thuộc dòng option:
-   <w:rPr><w:u w:val="single"/></w:rPr> hoặc bất kỳ w:val nào khác ngoài "none"
-   → ĐÓ LÀ ĐÁP ÁN ĐÚNG (ưu tiên cao nhất)
+JSON thuần: [{"question":"...","options":[{"label":"A","text":"...","correct":false},...]}]
 
-2. **Màu đỏ (w:color)** trong w:rPr:
-   <w:color w:val="FF0000"/> hoặc các mã đỏ: C00000, A00000, DC143C, B22222, 8B0000...
-   (Quy tắc: giá trị hex R > 8C, G < 64, B < 64)
-   → đáp án đúng
-
-3. **Highlight đỏ (w:highlight)**:
-   <w:highlight w:val="red"/> hoặc w:val="darkRed"
-   → đáp án đúng
-
-4. **Nền đỏ (w:shd)** trong w:pPr của đoạn văn chứa option:
-   <w:shd w:fill="FF0000" .../>
-   → đáp án đúng
-
-5. **Dấu * trong nội dung text** (w:t): → đáp án đúng (nhưng ít phổ biến)
-
-LƯU Ý QUAN TRỌNG:
-- Mỗi w:p là một đoạn văn. Mỗi w:r là một run trong đoạn.
-- Chỉ cần MỘT run trong đoạn option có màu đỏ/gạch chân → cả dòng option đó là đáp án đúng
-- Nếu chỉ label "C." được đánh màu đỏ → vẫn là đáp án đúng
-- **LAYOUT NGANG**: Nhiều câu hỏi có 4 options A/B/C/D nằm trên CÙNG MỘT w:p (đoạn văn), cách nhau bằng tab/space. Hãy tách chúng thành 4 options riêng biệt.
-  Ví dụ: một w:p chứa text "A. Ngà voi và sừng tê giác. B. Cánh chim và cánh côn trùng. C. Cánh dơi và tay người. D. Voi voi và vòi bạch tuộc."
-  → 4 options riêng, đáp án là option nào có run được underline/đỏ trong đoạn đó
-- Nếu KHÔNG tìm thấy marker nào → correct=false cho tất cả (tuyệt đối KHÔNG đoán)
-
-Trả về JSON array (chỉ JSON thuần, không markdown backtick, không giải thích):
-[{"question":"...","options":[{"label":"A","text":"...","correct":false},{"label":"B","text":"...","correct":false},{"label":"C","text":"...","correct":true},{"label":"D","text":"...","correct":false}]},...]
-
-XML OOXML từ file Word (word/document.xml):
+XML:
 ${xmlSnippet}
 
-Plain text tham khảo cấu trúc (đáp án đúng PHẢI lấy từ XML markup, không từ đây):
+Plain text:
 ${textSnippet}`;
 
   try {
-    const response = await fetch(CLAUDE_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: CLAUDE_MODEL,
-        max_tokens: 8192,
-        messages: [{ role: 'user', content: prompt }]
-      })
+    const res = await fetch(CLAUDE_URL, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 8192, messages:[{role:'user',content:prompt}] })
     });
-
-    const data = await response.json();
-    if (data.error) {
-      console.error('Claude API error:', data.error);
-      return null;
-    }
+    const data = await res.json();
+    if (data.error) { console.error(data.error); return null; }
     const content = data.content?.[0]?.text || '';
-    const jsonMatch = content.match(/\[[\s\S]*\]/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
+    const jm = content.match(/\[[\s\S]*\]/);
+    if (jm) {
+      const parsed = JSON.parse(jm[0]);
       if (Array.isArray(parsed) && parsed.length > 0) {
         return parsed.map(q => {
-          const opts = (q.options || []).map(o => ({
-            label: o.label,
-            text: (o.text || '').replace(/\*/g, '').trim(),
-            correct: !!o.correct
-          }));
-          const correct = opts.findIndex(o => o.correct);
-          return { question: q.question, options: opts, correct, answered: false, userIdx: -1 };
+          const opts = (q.options||[]).map(o => ({ label:o.label, text:(o.text||'').replace(/\*/g,'').trim(), correct:!!o.correct }));
+          return { question:q.question, options:opts, correct:opts.findIndex(o=>o.correct), answered:false, userIdx:-1 };
         });
       }
     }
-  } catch (e) {
-    console.error('Claude AI error:', e);
-  } finally {
-    setLoading(false);
-  }
+  } catch(e) { console.error(e); } finally { setLoading(false); }
   return null;
 };
 
-// ════════════════════════════════════════════════════════════
-// CLAUDE AI — STRUCTURE PARSER (paste/txt fallback)
-// ════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════
+// CLAUDE AI — STRUCTURE PARSER
+// ════════════════════════════════════════════════════
 const aiParseStructure = async (text) => {
-  setLoading(true, 'Claude AI đang tách cấu trúc câu hỏi...');
+  setLoading(true, 'Claude AI đang tách cấu trúc...');
   try {
-    const prompt = `Bạn là parser câu hỏi trắc nghiệm. Tách văn bản sau thành JSON array.
-Đáp án đúng được đánh dấu bằng dấu * cuối text của option.
-
-Quy tắc:
-- correct=true CHỈ KHI text của option có dấu * (xóa * khỏi text sau khi xác định)
-- Nếu không có dấu * → correct=false cho tất cả (đừng đoán)
-- Trả về JSON array thuần (không có backtick, không giải thích)
-
-Format: [{"question":"...","options":[{"label":"A","text":"...","correct":false},...]}]
-
+    const prompt = `Parser trắc nghiệm. Tách văn bản thành JSON. correct=true khi có dấu *. Xóa * khỏi text.
+JSON thuần: [{"question":"...","options":[{"label":"A","text":"...","correct":false},...]}]
 Văn bản:
-${text.slice(0, 12000)}`;
-
-    const response = await fetch(CLAUDE_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: CLAUDE_MODEL,
-        max_tokens: 8192,
-        messages: [{ role: 'user', content: prompt }]
-      })
+${text.slice(0,12000)}`;
+    const res = await fetch(CLAUDE_URL, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 8192, messages:[{role:'user',content:prompt}] })
     });
-
-    const data = await response.json();
+    const data = await res.json();
     const content = data.content?.[0]?.text || '';
-    const jsonMatch = content.match(/\[[\s\S]*\]/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
+    const jm = content.match(/\[[\s\S]*\]/);
+    if (jm) {
+      const parsed = JSON.parse(jm[0]);
       if (Array.isArray(parsed) && parsed.length > 0) {
         return parsed.map(q => {
-          const opts = (q.options || []).map(o => ({
-            label: o.label,
-            text: (o.text || '').replace(/\*/g, '').trim(),
-            correct: !!o.correct
-          }));
-          const correct = opts.findIndex(o => o.correct);
-          return { question: q.question, options: opts, correct, answered: false, userIdx: -1 };
+          const opts = (q.options||[]).map(o => ({ label:o.label, text:(o.text||'').replace(/\*/g,'').trim(), correct:!!o.correct }));
+          return { question:q.question, options:opts, correct:opts.findIndex(o=>o.correct), answered:false, userIdx:-1 };
         });
       }
     }
-  } catch (e) {
-    console.error('Claude structure error:', e);
-  } finally {
-    setLoading(false);
-  }
+  } catch(e) { console.error(e); } finally { setLoading(false); }
   return null;
 };
 
-// ════════════════════════════════════════════════════════════
-// LOCAL TEXT PARSER (for paste/txt, handles * markers)
-// ════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════
+// LOCAL TEXT PARSER
+// ════════════════════════════════════════════════════
 const OLAB = /^([A-Da-d])[\.\)]/i;
-const isOptLine = (line) => OLAB.test(line.trim());
-const isCauHeader = (line) => /^(câu|question|q\.?)\s*\d+/i.test(line.trim());
+const isOptLine = l => OLAB.test(l.trim());
+const isCauHeader = l => /^(câu|question|q\.?)\s*\d+/i.test(l.trim());
 
 const scanOptLine = (line, rawOpts) => {
   const re = /([A-Da-d])[\.\)]\s*(.*?)(?=\s{2,}[A-Da-d][\.\)]|$)/g;
-  let m, found = false;
+  let m;
   while ((m = re.exec(line)) !== null) {
-    found = true;
     const lbl = m[1].toUpperCase();
-    let txt = m[2].trim();
-    let cor = false;
-    if (txt.includes('*')) { cor = true; txt = txt.replace(/\*/g, '').trim(); }
-    if (!rawOpts[lbl]) rawOpts[lbl] = { text: txt, correct: cor };
+    let txt = m[2].trim(), cor = false;
+    if (txt.includes('*')) { cor = true; txt = txt.replace(/\*/g,'').trim(); }
+    if (!rawOpts[lbl]) rawOpts[lbl] = { text:txt, correct:cor };
   }
-  return found;
 };
 
-const buildQuestion = (qLines, rawOpts) => {
-  const opts = ['A', 'B', 'C', 'D'].filter(l => rawOpts[l]).map(l => ({ label: l, ...rawOpts[l] }));
-  if (opts.length < 2) return null;
-  const question = qLines.join(' ').trim();
-  if (!question) return null;
-  const correct = opts.findIndex(o => o.correct);
-  return { question, options: opts, correct, answered: false, userIdx: -1 };
+const buildQ = (qLines, rawOpts) => {
+  const opts = ['A','B','C','D'].filter(l=>rawOpts[l]).map(l=>({label:l,...rawOpts[l]}));
+  if (opts.length < 2 || !qLines.join('').trim()) return null;
+  return { question:qLines.join(' ').trim(), options:opts, correct:opts.findIndex(o=>o.correct), answered:false, userIdx:-1 };
 };
 
 const parseText = (text) => {
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const lines = text.split('\n').map(l=>l.trim()).filter(Boolean);
   if (!lines.length) return [];
-
-  const hasCauHeaders = lines.some(isCauHeader);
-  if (hasCauHeaders) {
+  if (lines.some(isCauHeader)) {
     const qs = [];
-    const blocks = text.split(/(?=(?:câu|question|q\.?)\s*\d+)/i).map(b => b.trim()).filter(Boolean);
-    for (const block of blocks) {
-      const blines = block.split('\n').map(l => l.trim()).filter(Boolean);
-      if (!blines.length) continue;
-      const rawOpts = {};
-      let qLines = [], pastOpts = false;
+    for (const block of text.split(/(?=(?:câu|question|q\.?)\s*\d+)/i).map(b=>b.trim()).filter(Boolean)) {
+      const blines = block.split('\n').map(l=>l.trim()).filter(Boolean);
+      const rawOpts = {}; let qLines=[], pastOpts=false;
       for (const line of blines) {
-        const stripped = line.replace(/^(?:câu|question|q\.?)\s*\d+[\.\:\s]+/i, '').trim();
-        if (!pastOpts && !isOptLine(stripped)) {
-          if (stripped) qLines.push(stripped);
-        } else {
-          pastOpts = true;
-          scanOptLine(line, rawOpts);
-        }
+        const s = line.replace(/^(?:câu|question|q\.?)\s*\d+[\.\:\s]+/i,'').trim();
+        if (!pastOpts && !isOptLine(s)) { if(s) qLines.push(s); }
+        else { pastOpts=true; scanOptLine(line,rawOpts); }
       }
-      const q = buildQuestion(qLines, rawOpts);
-      if (q) qs.push(q);
+      const q = buildQ(qLines,rawOpts); if(q) qs.push(q);
     }
     return qs;
   }
-
-  const qs = [];
-  let qLines = [], rawOpts = {}, inOpts = false;
-  const flush = () => {
-    if (Object.keys(rawOpts).length >= 2) {
-      const q = buildQuestion(qLines, rawOpts);
-      if (q) qs.push(q);
-    }
-    qLines = []; rawOpts = {}; inOpts = false;
-  };
-  for (const line of lines) {
-    if (isOptLine(line)) {
-      inOpts = true;
-      scanOptLine(line, rawOpts);
-    } else {
-      if (inOpts) flush();
-      qLines.push(line);
-    }
+  const qs=[]; let qLines=[],rawOpts={},inOpts=false;
+  const flush=()=>{ if(Object.keys(rawOpts).length>=2){const q=buildQ(qLines,rawOpts);if(q)qs.push(q);} qLines=[];rawOpts={};inOpts=false; };
+  for(const line of lines){
+    if(isOptLine(line)){inOpts=true;scanOptLine(line,rawOpts);}
+    else{if(inOpts)flush();qLines.push(line);}
   }
-  flush();
-  return qs;
+  flush(); return qs;
 };
 
-// ════════════════════════════════════════════════════════════
-// SHUFFLE HELPER
-// ════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════
+// SHUFFLE
+// ════════════════════════════════════════════════════
 const shuffleOptions = (opts, correctIdx) => {
-  const tagged = opts.map((o, i) => ({ ...o, _wasCorrect: i === correctIdx }));
-  for (let i = tagged.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [tagged[i], tagged[j]] = [tagged[j], tagged[i]];
-  }
-  const labels = ['A', 'B', 'C', 'D', 'E', 'F'];
-  const shuffled = tagged.map((o, i) => ({ ...o, label: labels[i] }));
-  const newCorrect = shuffled.findIndex(o => o._wasCorrect);
-  shuffled.forEach(o => delete o._wasCorrect);
-  return { options: shuffled, correct: newCorrect };
+  const tagged = opts.map((o,i)=>({...o,_c:i===correctIdx}));
+  for(let i=tagged.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[tagged[i],tagged[j]]=[tagged[j],tagged[i]];}
+  const labels=['A','B','C','D','E','F'];
+  const shuffled=tagged.map((o,i)=>({...o,label:labels[i]}));
+  const nc=shuffled.findIndex(o=>o._c);
+  shuffled.forEach(o=>delete o._c);
+  return {options:shuffled,correct:nc};
 };
 
-// ════════════════════════════════════════════════════════════
-// START QUIZ — Parsing strategy
-//
-// DOCX:
-//   1. JSZip XML local parser (fast, reads w:color + w:u directly)
-//   2. If local parse finds questions but some have no answer → AI XML fallback
-//   3. If local parse finds 0 questions → AI XML parser
-//
-// Paste/TXT:
-//   1. Local text parser (handles * markers)
-//   2. AI structure parser if local fails
-// ════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════
+// START QUIZ
+// ════════════════════════════════════════════════════
 const startQuiz = async () => {
   const text = document.getElementById('raw-text').value.trim();
   if (!text) { toast('⚠️ Vui lòng tải file hoặc nhập câu hỏi!'); return; }
-
   let parsed = [];
 
   if (lastDocxXml) {
-    // ── DOCX path: Local XML parser FIRST (fast + accurate)
-    setLoading(true, 'Đang phân tích XML gốc từ DOCX...');
+    setLoading(true, 'Đang phân tích XML gốc DOCX...');
     try {
-      const paragraphs = parseDocxXml(lastDocxXml);
-      parsed = buildQuestionsFromParagraphs(paragraphs);
-      console.log(`🔍 Local XML parser: ${parsed.length} câu, ${parsed.filter(q => q.correct >= 0 && !q.hasNoAnswer).length} có đáp án`);
-    } catch (e) {
-      console.error('Local XML parse error:', e);
-    } finally {
-      setLoading(false);
-    }
+      parsed = buildQuestionsFromParagraphs(parseDocxXml(lastDocxXml));
+    } catch(e) { console.error(e); } finally { setLoading(false); }
 
-    // Count questions without answers
-    const noAnswerCount = parsed.filter(q => q.hasNoAnswer || q.correct < 0).length;
-    const needAi = parsed.length === 0 || noAnswerCount > parsed.length * 0.3; // >30% no answer → use AI
-
-    if (needAi) {
-      console.log(`🤖 Gọi Claude AI (${parsed.length === 0 ? 'no questions' : noAnswerCount + ' no answer'})`);
-      toast(`🤖 Claude AI đang đọc XML markup...`, 8000);
-      const plainText = xmlToPlainText(lastDocxXml);
-      const aiResult = await aiParseFromXml(lastDocxXml, plainText);
-      if (aiResult && aiResult.length > 0) {
-        parsed = aiResult;
-        toast(`✅ AI xác nhận ${aiResult.length} câu hỏi`);
-      } else if (parsed.length === 0) {
-        toast('❌ Không parse được câu hỏi. Kiểm tra định dạng!');
-        return;
-      } else {
-        toast(`⚠️ AI không hỗ trợ được — dùng kết quả local (${noAnswerCount} câu thiếu đáp án)`, 5000);
-      }
-    } else if (noAnswerCount > 0) {
-      toast(`⚠️ ${noAnswerCount} câu không có đáp án rõ ràng`, 4000);
+    const noAns = parsed.filter(q => q.hasNoAnswer || q.correct < 0).length;
+    if (parsed.length === 0 || noAns > parsed.length * 0.3) {
+      toast('🤖 Claude AI đang đọc XML markup...', 8000);
+      const ai = await aiParseFromXml(lastDocxXml, xmlToPlainText(lastDocxXml));
+      if (ai?.length) { parsed = ai; toast(`✅ AI xác nhận ${ai.length} câu`); }
+      else if (!parsed.length) { toast('❌ Không parse được câu hỏi!'); return; }
     }
   } else {
-    // ── Paste/TXT path
     parsed = parseText(text);
-    if (parsed.length === 0) {
-      toast('🤖 Không tìm thấy câu hỏi — Claude AI đang tách cấu trúc...', 6000);
-      const aiResult = await aiParseStructure(text);
-      if (aiResult && aiResult.length > 0) {
-        parsed = aiResult;
-      } else {
-        toast('❌ Không tìm thấy câu hỏi. Kiểm tra định dạng!');
-        return;
-      }
+    if (!parsed.length) {
+      toast('🤖 Claude AI đang tách cấu trúc...', 6000);
+      const ai = await aiParseStructure(text);
+      if (ai?.length) parsed = ai;
+      else { toast('❌ Không tìm thấy câu hỏi!'); return; }
     }
   }
 
-  // Ensure all correct indices are valid
   parsed.forEach(q => { if (q.correct < 0) q.correct = 0; });
-
   rawQuestions = parsed;
   resetAndRender();
 };
 
-// ════════════════════════════════════════════════════════════
-// QUIZ RENDER & LOGIC
-// ════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════
+// QUIZ RENDER
+// ════════════════════════════════════════════════════
 const resetAndRender = () => {
   questions = rawQuestions.map(q => {
     const { options, correct } = shuffleOptions([...q.options], q.correct);
-    return { ...q, options, correct, answered: false, userIdx: -1 };
+    return { ...q, options, correct, answered:false, userIdx:-1 };
   });
   answered = scoreR = scoreW = 0;
   showScreen('screen-quiz');
@@ -955,11 +774,11 @@ const resetAndRender = () => {
   document.getElementById('header-sub').classList.remove('hidden');
   document.getElementById('hdr-total').textContent = questions.length;
   renderAll(); renderNav(); updateProg();
-  scrollTo({ top: 0, behavior: 'smooth' });
+  scrollTo({ top:0, behavior:'smooth' });
 };
 
 const retryQuiz = () => resetAndRender();
-const esc = t => (t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const esc = t => (t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
 const renderAll = () => {
   const wrap = document.getElementById('q-wrap');
@@ -967,20 +786,24 @@ const renderAll = () => {
   questions.forEach((q, qi) => {
     const card = document.createElement('div');
     card.id = 'qc-' + qi;
-    card.className = 'bg-surface-container-lowest rounded-2xl shadow-sm border border-outline-variant p-8 mb-4';
+    card.className = 'raised-card border border-slate-100 p-8 mb-4';
+
     const gridLayout = q.options.length === 4 && q.options.every(o => o.text.length < 60);
     const optsClass = gridLayout ? 'grid grid-cols-2 gap-3' : 'flex flex-col gap-3';
-    const optsHtml = q.options.map((o, oi) => `
-      <button class="opt-tile flex items-center gap-3 p-4 border-2 border-outline-variant rounded-xl text-left w-full"
-              id="o-${qi}-${oi}" onclick="pick(${qi},${oi})" ${q.answered ? 'disabled' : ''}>
-        <div class="opt-lbl w-10 h-10 rounded-lg bg-surface-container flex items-center justify-center font-bold text-sm text-on-surface-variant flex-shrink-0">${esc(o.label)}</div>
+
+    const optsHtml = q.options.map((o,oi) => `
+      <button class="opt-tile flex items-center gap-3 p-4 rounded-xl text-left w-full"
+              id="o-${qi}-${oi}" onclick="pick(${qi},${oi})" ${q.answered?'disabled':''}>
+        <div class="opt-lbl w-10 h-10 rounded-lg bg-surface-container-low flex items-center justify-center font-bold text-sm text-on-surface-variant flex-shrink-0 transition-colors">${esc(o.label)}</div>
         <span class="opt-text text-sm font-medium text-on-surface leading-relaxed">${esc(o.text)}</span>
       </button>`).join('');
+
     card.innerHTML = `
-      <span class="text-xs font-black text-primary uppercase tracking-widest block mb-4">CÂU ${qi + 1} / ${questions.length}</span>
+      <span class="text-xs font-black text-primary uppercase tracking-widest block mb-4">CÂU ${qi+1} / ${questions.length}</span>
       <h2 class="text-lg font-semibold text-on-surface mb-6 leading-relaxed">${esc(q.question)}</h2>
       <div class="${optsClass}">${optsHtml}</div>
       <div class="q-fb hidden mt-4 px-4 py-3 rounded-xl text-sm font-semibold" id="fb-${qi}"></div>`;
+
     wrap.appendChild(card);
     if (q.answered) applyStyles(qi, q.userIdx);
   });
@@ -989,74 +812,73 @@ const renderAll = () => {
 const pick = (qi, oi) => {
   const q = questions[qi];
   if (q.answered) return;
-  q.answered = true; q.userIdx = oi; answered++;
-  oi === q.correct ? scoreR++ : scoreW++;
-  applyStyles(qi, oi);
-  q.options.forEach((_, i) => { const b = document.getElementById(`o-${qi}-${i}`); if (b) b.disabled = true; });
+  q.answered=true; q.userIdx=oi; answered++;
+  oi===q.correct ? scoreR++ : scoreW++;
+  applyStyles(qi,oi);
+  q.options.forEach((_,i) => { const b=document.getElementById(`o-${qi}-${i}`); if(b) b.disabled=true; });
   updateProg(); renderNav();
-  if (answered === questions.length) setTimeout(showResult, 1000);
+  if (answered===questions.length) setTimeout(showResult,1000);
 };
 
 const applyStyles = (qi, userOi) => {
-  const q = questions[qi], fb = document.getElementById('fb-' + qi);
-  q.options.forEach((_, i) => {
-    const b = document.getElementById(`o-${qi}-${i}`);
-    if (!b) return;
-    if (i === q.correct) b.classList.add('correct');
-    else if (i === userOi && userOi !== q.correct) b.classList.add('wrong');
+  const q=questions[qi], fb=document.getElementById('fb-'+qi);
+  q.options.forEach((_,i) => {
+    const b=document.getElementById(`o-${qi}-${i}`); if(!b) return;
+    if(i===q.correct) b.classList.add('correct');
+    else if(i===userOi && userOi!==q.correct) b.classList.add('wrong');
   });
   if (fb) {
-    const ok = userOi === q.correct;
+    const ok=userOi===q.correct;
     fb.classList.remove('hidden');
-    fb.className = `q-fb mt-4 px-4 py-3 rounded-xl text-sm font-semibold ${ok ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`;
-    fb.textContent = ok ? '✓ Chính xác!' : `✗ Sai! Đáp án đúng: ${q.options[q.correct].label}. ${q.options[q.correct].text}`;
+    fb.className=`q-fb mt-4 px-4 py-3 rounded-xl text-sm font-semibold ${ok?'bg-green-50 text-green-700 border border-green-200':'bg-red-50 text-red-700 border border-red-200'}`;
+    fb.textContent=ok ? '✓ Chính xác!' : `✗ Sai! Đáp án đúng: ${q.options[q.correct].label}. ${q.options[q.correct].text}`;
   }
 };
 
 const renderNav = () => {
-  const grid = document.getElementById('nav-grid');
-  grid.innerHTML = '';
-  questions.forEach((q, qi) => {
-    const btn = document.createElement('button');
-    btn.className = 'nav-btn w-10 h-10 flex items-center justify-center rounded-lg text-xs font-bold border border-outline-variant bg-surface-container-low text-on-surface-variant hover:bg-surface-container transition-colors';
-    btn.textContent = qi + 1;
-    if (q.answered) btn.classList.add('done');
-    btn.onclick = () => document.getElementById('qc-' + qi)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const grid=document.getElementById('nav-grid'); grid.innerHTML='';
+  questions.forEach((q,qi) => {
+    const btn=document.createElement('button');
+    btn.className='nav-btn w-10 h-10 flex items-center justify-center rounded-lg text-xs font-bold border border-slate-200 bg-slate-50 text-on-surface-variant hover:bg-slate-100 transition-colors';
+    btn.textContent=qi+1;
+    if(q.answered) btn.classList.add('done');
+    btn.onclick=()=>document.getElementById('qc-'+qi)?.scrollIntoView({behavior:'smooth',block:'center'});
     grid.appendChild(btn);
   });
-  const done = questions.filter(q => q.answered).length;
-  document.getElementById('sb-prog').textContent = `${done}/${questions.length}`;
+  document.getElementById('sb-prog').textContent=`${questions.filter(q=>q.answered).length}/${questions.length}`;
 };
 
 const updateProg = () => {
-  const t = questions.length, pct = t ? Math.round(answered / t * 100) : 0;
-  document.getElementById('top-prog').style.width = pct + '%';
-  document.getElementById('q-prog-bar').style.width = pct + '%';
-  document.getElementById('q-label').textContent = `Câu ${answered} / ${t}`;
-  document.getElementById('q-prog-txt').textContent = `${answered} / ${t} đã trả lời`;
-  document.getElementById('hdr-right').textContent = scoreR;
+  const t=questions.length, pct=t?Math.round(answered/t*100):0;
+  document.getElementById('top-prog').style.width=pct+'%';
+  document.getElementById('q-prog-bar').style.width=pct+'%';
+  document.getElementById('q-label').textContent=`Câu ${answered} / ${t}`;
+  document.getElementById('q-prog-txt').textContent=`${answered} / ${t} đã trả lời`;
+  document.getElementById('hdr-right').textContent=scoreR;
 };
 
 const showResult = () => {
   showScreen('screen-result');
-  const t = questions.length, p = Math.round(scoreR / t * 100);
-  document.getElementById('r-emoji').textContent = p >= 80 ? '🎉' : p >= 60 ? '👍' : p >= 40 ? '🤔' : '💪';
-  document.getElementById('r-score').textContent = `${scoreR}/${t}`;
-  document.getElementById('r-c').textContent = scoreR;
-  document.getElementById('r-w').textContent = scoreW;
-  document.getElementById('r-p').textContent = p + '%';
-  document.getElementById('top-prog').style.width = '100%';
-  scrollTo({ top: 0, behavior: 'smooth' });
+  const t=questions.length, p=Math.round(scoreR/t*100);
+  document.getElementById('r-emoji').textContent=p>=80?'🎉':p>=60?'👍':p>=40?'🤔':'💪';
+  document.getElementById('r-score').textContent=`${scoreR}/${t}`;
+  document.getElementById('r-c').textContent=scoreR;
+  document.getElementById('r-w').textContent=scoreW;
+  document.getElementById('r-p').textContent=p+'%';
+  document.getElementById('top-prog').style.width='100%';
+  // Animate ring
+  const circ=276.46, offset=circ-(circ*p/100);
+  setTimeout(()=>{ document.getElementById('r-ring').style.strokeDashoffset=offset; },100);
+  scrollTo({top:0,behavior:'smooth'});
 };
 
 const showUpload = () => {
   showScreen('screen-upload');
-  document.getElementById('top-prog').style.width = '0%';
+  document.getElementById('top-prog').style.width='0%';
   document.getElementById('header-sub').classList.add('hidden');
-  lastDocxXml = '';
+  lastDocxXml='';
 };
 
-// Init
 showScreen('screen-upload');
 </script>
 </body>
