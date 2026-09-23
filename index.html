@@ -550,25 +550,81 @@ const readDocxWithJSZip = async (arrayBuffer) => {
 
 const xmlToPlainText = (xmlString) => parseDocxXml(xmlString).map(p => p.text).join('\n');
 
-const readPdfAsText = async (arrayBuffer) => {
-  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-  let lines = [];
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const content = await page.getTextContent();
-    let lastY = null, cur = '';
-    for (const item of content.items) {
-      if (lastY !== null && Math.abs(item.transform[5] - lastY) > 2) {
-        if (cur.trim()) lines.push(cur.trim());
-        cur = '';
-      }
-      cur += item.str + (item.hasEOL ? '' : ' ');
-      lastY = item.transform[5];
+let lastPdfParagraphs = null;
+
+const sampleItemColor = (imgData, cw, ch, x0, y0, x1, y1) => {
+  x0 = Math.max(0, Math.floor(x0)); y0 = Math.max(0, Math.floor(y0));
+  x1 = Math.min(cw, Math.ceil(x1)); y1 = Math.min(ch, Math.ceil(y1));
+  let rS = 0, gS = 0, bS = 0, ink = 0;
+  for (let y = y0; y < y1; y += 2) {
+    for (let x = x0; x < x1; x += 2) {
+      const idx = (y * cw + x) * 4;
+      const r = imgData[idx], g = imgData[idx + 1], b = imgData[idx + 2];
+      if (r > 235 && g > 235 && b > 235) continue;
+      rS += r; gS += g; bS += b; ink++;
     }
-    if (cur.trim()) lines.push(cur.trim());
   }
-  return lines.join('\n');
+  if (!ink) return null;
+  return { r: rS / ink, g: gS / ink, b: bS / ink };
 };
+const isPixelRed = (c) => !!(c && c.r > 90 && c.r > c.g + 35 && c.r > c.b + 35);
+
+const extractPdfParagraphs = async (arrayBuffer) => {
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const paragraphs = [];
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const viewport = page.getViewport({ scale: 2 });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    const content = await page.getTextContent();
+
+    const items = [];
+    for (const it of content.items) {
+      if (!it.str || !it.str.trim()) continue;
+      const tx = pdfjsLib.Util.transform(viewport.transform, it.transform);
+      const scaleX = Math.hypot(tx[0], tx[1]) || viewport.scale;
+      const h = Math.hypot(tx[2], tx[3]) || 10;
+      const w = Math.max((it.width || 0) * scaleX, 2);
+      const x0 = tx[4], yBase = tx[5];
+      const col = sampleItemColor(imgData, canvas.width, canvas.height, x0, yBase - h * 1.05, x0 + w, yBase + h * 0.25);
+      items.push({ text: it.str, x: x0, y: yBase, red: isPixelRed(col) });
+    }
+    items.sort((a, b) => a.y - b.y || a.x - b.x);
+
+    const lines = [];
+    for (const it of items) {
+      let line = lines.find(l => Math.abs(l.y - it.y) < 4);
+      if (!line) { line = { y: it.y, items: [] }; lines.push(line); }
+      line.items.push(it);
+    }
+    lines.sort((a, b) => a.y - b.y);
+    for (const line of lines) {
+      line.items.sort((a, b) => a.x - b.x);
+      const text = line.items.map(i => i.text).join(' ').replace(/\s+/g, ' ').trim();
+      if (!text) continue;
+      const anyRed = line.items.some(i => i.red);
+      paragraphs.push({ text, isCorrectMarked: anyRed });
+    }
+  }
+  const flat = [];
+  for (const para of paragraphs) {
+    const splits = splitInlineOptions(para.text, para.isCorrectMarked, []);
+    for (const seg of splits) if (seg.text) flat.push({ text: seg.text, isCorrectMarked: seg.isCorrectMarked });
+  }
+  return flat.filter(p => !/https?:\/\//i.test(p.text));
+};
+
+const markCorrectInLine = (text) => {
+  if (!OPTION_LABEL_RE.test(text)) return text;
+  return text.replace(/\s*$/, '') + ' *';
+};
+const paragraphsToMarkedText = (paragraphs) =>
+  paragraphs.map(p => (p.isCorrectMarked ? markCorrectInLine(p.text) : p.text)).join('\n');
 
 // ════════════════════════════════════════════════════
 // FILE HANDLER
@@ -582,6 +638,7 @@ const handleFile = (file, badge, nameEl) => {
         setLoading(true, 'Đang đọc file DOCX bằng JSZip...');
         const xmlContent = await readDocxWithJSZip(e.target.result);
         lastDocxXml = xmlContent;
+        lastPdfParagraphs = null;
         appendText(xmlToPlainText(xmlContent).trim());
         nameEl.textContent = file.name;
         badge.classList.remove('hidden');
@@ -595,10 +652,11 @@ const handleFile = (file, badge, nameEl) => {
     const r = new FileReader();
     r.onload = async (e) => {
       try {
-        setLoading(true, 'Đang đọc file PDF...');
+        setLoading(true, 'Đang đọc & nhận diện màu trong PDF...');
         lastDocxXml = '';
-        const text = await readPdfAsText(e.target.result);
-        appendText(text.trim());
+        const paragraphs = await extractPdfParagraphs(e.target.result);
+        lastPdfParagraphs = paragraphs;
+        appendText(paragraphsToMarkedText(paragraphs).trim());
         nameEl.textContent = file.name;
         badge.classList.remove('hidden');
         toast('✅ Đã đọc PDF: ' + file.name);
@@ -611,6 +669,7 @@ const handleFile = (file, badge, nameEl) => {
     const r = new FileReader();
     r.onload = (e) => {
       lastDocxXml = '';
+      lastPdfParagraphs = null;
       appendText(e.target.result.trim());
       nameEl.textContent = file.name;
       badge.classList.remove('hidden');
@@ -716,33 +775,80 @@ const aiParseFullDoc = async (xmlString) => {
 };
 
 // ════════════════════════════════════════════════════
-// CLAUDE AI — STRUCTURE PARSER
+// CLAUDE AI — FULL TEXT PARSER (chunked, question-boundary safe)
 // ════════════════════════════════════════════════════
-const aiParseStructure = async (text) => {
-  setLoading(true, 'Claude AI đang tách cấu trúc...');
-  try {
-    const prompt = `Parser trắc nghiệm. Tách văn bản thành JSON. correct=true khi có dấu *. Xóa * khỏi text.
-JSON thuần: [{"question":"...","options":[{"label":"A","text":"...","correct":false},...]}]
+const countCauHeadersText = (text) => {
+  const seen = new Set();
+  text.split('\n').forEach(l => {
+    const m = l.trim().match(/^(?:câu|cau|question)\s*[:\.]?\s*(\d+)/i);
+    if (m) seen.add(m[1]);
+  });
+  return seen.size;
+};
+
+const chunkTextByQuestion = (text, chunkSize = 18000) => {
+  const lines = text.split('\n');
+  const chunks = []; let cur = []; let curLen = 0;
+  for (const line of lines) {
+    const isHeader = /^(?:câu|cau|question)\s*\d+/i.test(line.trim());
+    if (isHeader && curLen > chunkSize && cur.length) {
+      chunks.push(cur.join('\n')); cur = []; curLen = 0;
+    }
+    cur.push(line); curLen += line.length + 1;
+  }
+  if (cur.length) chunks.push(cur.join('\n'));
+  return chunks.filter(c => c.trim());
+};
+
+const aiParseTextChunk = async (textChunk) => {
+  const prompt = `Bạn là parser câu hỏi trắc nghiệm. Tách TẤT CẢ câu hỏi trắc nghiệm có trong đoạn văn bản dưới đây thành JSON.
+
+Đáp án đúng là đáp án có dấu * ở cuối. Xóa dấu * khỏi text khi trả về.
+LƯU Ý QUAN TRỌNG:
+- Phải tách ĐỦ tất cả câu hỏi có trong đoạn, không được bỏ sót câu nào.
+- Nếu một câu hỏi bị cắt dở ở đầu hoặc cuối đoạn (thiếu số thứ tự hoặc thiếu đáp án), BỎ QUA câu đó, không suy đoán.
+- Mỗi câu hỏi chỉ có ĐÚNG MỘT đáp án đúng. Nếu không có dấu * nào hoặc có nhiều hơn 1 dấu * trong cùng câu, để correct=false cho tất cả đáp án của câu đó.
+- Giữ nguyên nội dung câu hỏi và đáp án, không dịch, không tóm tắt, không sửa chính tả.
+
+Chỉ trả về JSON thuần, không giải thích gì thêm: [{"question":"...","options":[{"label":"A","text":"...","correct":false},...]}]
+
 Văn bản:
-${text.slice(0,12000)}`;
+${textChunk}`;
+  try {
     const res = await fetch(CLAUDE_URL, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 8192, messages:[{role:'user',content:prompt}] })
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 8192, messages: [{ role: 'user', content: prompt }] })
     });
     const data = await res.json();
+    if (data.error) { console.error(data.error); return []; }
     const content = data.content?.[0]?.text || '';
     const jm = content.match(/\[[\s\S]*\]/);
-    if (jm) {
-      const parsed = JSON.parse(jm[0]);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.map(q => {
-          const opts = (q.options||[]).map(o => ({ label:o.label, text:(o.text||'').replace(/\*/g,'').trim(), correct:!!o.correct }));
-          return { question:q.question, options:opts, correct:opts.findIndex(o=>o.correct), answered:false, userIdx:-1 };
-        });
-      }
+    if (!jm) return [];
+    const parsedArr = JSON.parse(jm[0]);
+    if (!Array.isArray(parsedArr)) return [];
+    return parsedArr.map(q => {
+      const opts = (q.options || []).map(o => ({ label: o.label, text: (o.text || '').replace(/\*/g, '').trim(), correct: !!o.correct }));
+      const correctCount = opts.filter(o => o.correct).length;
+      const correct = correctCount === 1 ? opts.findIndex(o => o.correct) : -1;
+      return { question: (q.question || '').trim(), options: opts, correct, answered: false, userIdx: -1, hasNoAnswer: correct < 0 };
+    }).filter(q => q.question && q.options.length >= 2);
+  } catch (e) { console.error(e); return []; }
+};
+
+const aiParseFullText = async (fullText) => {
+  const chunks = chunkTextByQuestion(fullText);
+  const seen = new Set(); const all = [];
+  for (let i = 0; i < chunks.length; i++) {
+    setLoading(true, `Claude AI đang xác minh đề (${i + 1}/${chunks.length})...`);
+    const res = await aiParseTextChunk(chunks[i]);
+    for (const q of res) {
+      const key = normalizeQ(q.question);
+      if (seen.has(key)) continue;
+      seen.add(key); all.push(q);
     }
-  } catch(e) { console.error(e); } finally { setLoading(false); }
-  return null;
+  }
+  setLoading(false);
+  return all;
 };
 
 // ════════════════════════════════════════════════════
@@ -766,7 +872,9 @@ const scanOptLine = (line, rawOpts) => {
 const buildQ = (qLines, rawOpts) => {
   const opts = ['A','B','C','D'].filter(l=>rawOpts[l]).map(l=>({label:l,...rawOpts[l]}));
   if (opts.length < 2 || !qLines.join('').trim()) return null;
-  return { question:qLines.join(' ').trim(), options:opts, correct:opts.findIndex(o=>o.correct), answered:false, userIdx:-1 };
+  const correctCount = opts.filter(o=>o.correct).length;
+  const correct = correctCount === 1 ? opts.findIndex(o=>o.correct) : -1;
+  return { question:qLines.join(' ').trim(), options:opts, correct, answered:false, userIdx:-1, hasNoAnswer: correct < 0 };
 };
 
 const parseText = (text) => {
@@ -846,13 +954,46 @@ const startQuiz = async () => {
         toast(`✅ Đã xác minh ${parsed.length} câu`);
       } else if (!parsed.length) { toast('❌ Không parse được câu hỏi!'); return; }
     }
+  } else if (lastPdfParagraphs) {
+    setLoading(true, 'Đang phân tích PDF...');
+    try { parsed = buildQuestionsFromParagraphs(lastPdfParagraphs); }
+    catch(e) { console.error(e); parsed = []; } finally { setLoading(false); }
+
+    const expectedCount = countCauHeaders(lastPdfParagraphs);
+    const noAns = parsed.filter(q => q.hasNoAnswer || q.correct < 0).length;
+    const countMismatch = expectedCount > 0 && parsed.length < expectedCount;
+
+    if (parsed.length === 0 || noAns > 0 || countMismatch) {
+      toast('🤖 Claude AI đang xác minh toàn bộ đề...', 10000);
+      const markedText = paragraphsToMarkedText(lastPdfParagraphs);
+      const ai = await aiParseFullText(markedText);
+      if (ai.length > 0) {
+        if (parsed.length === 0 || countMismatch || ai.length > parsed.length) {
+          parsed = ai;
+        } else {
+          const aiMap = new Map(ai.map(q => [normalizeQ(q.question), q]));
+          parsed = parsed.map(q => {
+            if (!q.hasNoAnswer && q.correct >= 0) return q;
+            const fix = aiMap.get(normalizeQ(q.question));
+            return fix && fix.correct >= 0 ? fix : q;
+          });
+        }
+        toast(`✅ Đã xác minh ${parsed.length} câu`);
+      } else if (!parsed.length) { toast('❌ Không parse được câu hỏi!'); return; }
+    }
   } else {
     parsed = parseText(text);
-    if (!parsed.length) {
-      toast('🤖 Claude AI đang tách cấu trúc...', 6000);
-      const ai = await aiParseStructure(text);
-      if (ai?.length) parsed = ai;
-      else { toast('❌ Không tìm thấy câu hỏi!'); return; }
+    const expectedCount = countCauHeadersText(text);
+    const noAns = parsed.filter(q => q.hasNoAnswer || q.correct < 0).length;
+    const countMismatch = expectedCount > 0 && parsed.length < expectedCount;
+
+    if (parsed.length === 0 || noAns > 0 || countMismatch) {
+      toast('🤖 Claude AI đang xác minh toàn bộ đề...', 8000);
+      const ai = await aiParseFullText(text);
+      if (ai.length > 0) {
+        if (parsed.length === 0 || countMismatch || ai.length > parsed.length) parsed = ai;
+        toast(`✅ Đã xác minh ${parsed.length} câu`);
+      } else if (!parsed.length) { toast('❌ Không tìm thấy câu hỏi!'); return; }
     }
   }
 
@@ -978,9 +1119,11 @@ const showUpload = () => {
   document.getElementById('top-prog').style.width='0%';
   document.getElementById('header-sub').classList.add('hidden');
   lastDocxXml='';
+  lastPdfParagraphs=null;
 };
 
 showScreen('screen-upload');
 </script>
 </body>
 </html>
+ 
