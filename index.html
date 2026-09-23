@@ -6,6 +6,7 @@
 <title>QuizLuyện Pro</title>
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
 <script>
@@ -143,7 +144,7 @@ textarea:focus{outline:none}
           <div class="px-4 pb-4 text-sm text-on-surface-variant leading-relaxed border-t border-slate-100 pt-3">
             <strong class="text-on-surface">JSZip đọc trực tiếp word/document.xml:</strong><br>
             chữ <strong class="text-red-600">màu đỏ</strong> (w:color) · <u>gạch chân</u> (w:u) · tô nền đỏ (w:highlight/w:shd) · label A/B/C/D đỏ · dấu <code class="bg-slate-100 px-1 rounded">*</code><br>
-            <span class="text-xs mt-1 block">JSZip đọc word/document.xml → Claude AI xác nhận đáp án · Đáp án <strong>xáo trộn</strong> mỗi lần làm</span>
+            <span class="text-xs mt-1 block">File PDF/TXT: dùng dấu <code class="bg-slate-100 px-1 rounded">*</code> cuối đáp án đúng, hoặc để Claude AI tự xác định · Đáp án <strong>xáo trộn</strong> mỗi lần làm</span>
           </div>
         </div>
       </div>
@@ -174,13 +175,13 @@ textarea:focus{outline:none}
           <span class="material-symbols-outlined text-primary text-[32px]">upload_file</span>
         </div>
         <h3 class="text-lg font-bold text-on-surface mb-1">Kéo thả hoặc click chọn file</h3>
-        <p class="text-sm text-on-surface-variant">Hỗ trợ <strong>.docx</strong> và <strong>.txt</strong></p>
+        <p class="text-sm text-on-surface-variant">Hỗ trợ <strong>.docx</strong>, <strong>.pdf</strong> và <strong>.txt</strong></p>
         <div id="f1-badge" class="hidden mt-4 inline-flex items-center gap-2 bg-primary-fixed text-primary border border-primary-fixed-dim rounded-full px-4 py-1.5 text-sm font-bold">
           <span class="material-symbols-outlined text-[16px]">check_circle</span>
           <span id="f1-name"></span>
         </div>
       </div>
-      <input type="file" id="file1" accept=".txt,.docx">
+      <input type="file" id="file1" accept=".txt,.docx,.pdf">
     </div>
 
     <!-- Divider -->
@@ -290,6 +291,7 @@ const CLAUDE_URL = 'https://api.anthropic.com/v1/messages';
 const CLAUDE_MODEL = 'claude-sonnet-4-20250514';
 let questions = [], rawQuestions = [], answered = 0, scoreR = 0, scoreW = 0;
 let lastDocxXml = '';
+if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
 // ════════════════════════════════════════════════════
 // COLLAPSIBLE TOOLTIPS
@@ -539,11 +541,32 @@ const readDocxWithJSZip = async (arrayBuffer) => {
 
 const xmlToPlainText = (xmlString) => parseDocxXml(xmlString).map(p => p.text).join('\n');
 
+const readPdfAsText = async (arrayBuffer) => {
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let lines = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    let lastY = null, cur = '';
+    for (const item of content.items) {
+      if (lastY !== null && Math.abs(item.transform[5] - lastY) > 2) {
+        if (cur.trim()) lines.push(cur.trim());
+        cur = '';
+      }
+      cur += item.str + (item.hasEOL ? '' : ' ');
+      lastY = item.transform[5];
+    }
+    if (cur.trim()) lines.push(cur.trim());
+  }
+  return lines.join('\n');
+};
+
 // ════════════════════════════════════════════════════
 // FILE HANDLER
 // ════════════════════════════════════════════════════
 const handleFile = (file, badge, nameEl) => {
-  if (file.name.toLowerCase().endsWith('.docx')) {
+  const lname = file.name.toLowerCase();
+  if (lname.endsWith('.docx')) {
     const r = new FileReader();
     r.onload = async (e) => {
       try {
@@ -559,9 +582,26 @@ const handleFile = (file, badge, nameEl) => {
       } finally { setLoading(false); }
     };
     r.readAsArrayBuffer(file);
+  } else if (lname.endsWith('.pdf')) {
+    const r = new FileReader();
+    r.onload = async (e) => {
+      try {
+        setLoading(true, 'Đang đọc file PDF...');
+        lastDocxXml = '';
+        const text = await readPdfAsText(e.target.result);
+        appendText(text.trim());
+        nameEl.textContent = file.name;
+        badge.classList.remove('hidden');
+        toast('✅ Đã đọc PDF: ' + file.name);
+      } catch (err) {
+        toast('❌ Lỗi PDF: ' + err.message);
+      } finally { setLoading(false); }
+    };
+    r.readAsArrayBuffer(file);
   } else {
     const r = new FileReader();
     r.onload = (e) => {
+      lastDocxXml = '';
       appendText(e.target.result.trim());
       nameEl.textContent = file.name;
       badge.classList.remove('hidden');
@@ -895,4 +935,3 @@ showScreen('screen-upload');
 </script>
 </body>
 </html>
- 
