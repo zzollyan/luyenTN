@@ -362,19 +362,22 @@ const RED_HIGHLIGHTS = new Set(['red','darkRed']);
 const parseRunProps = (rPrXml) => {
   if (!rPrXml) return { red: false, underline: false };
   let red = false, underline = false;
-  const colorM = rPrXml.match(/w:color[^>]*w:val="([^"]+)"/);
+  const colorM = rPrXml.match(/<w:color\b[^>]*\bw:val="([^"]+)"/);
   if (colorM && isRedHex(colorM[1])) red = true;
-  const hlM = rPrXml.match(/w:highlight[^>]*w:val="([^"]+)"/);
+  const hlM = rPrXml.match(/<w:highlight\b[^>]*\bw:val="([^"]+)"/);
   if (hlM && RED_HIGHLIGHTS.has(hlM[1])) red = true;
-  const uM = rPrXml.match(/w:u[^>]*w:val="([^"]+)"/);
+  const shdM = rPrXml.match(/<w:shd\b[^>]*\bw:fill="([^"]+)"/);
+  if (shdM && isRedHex(shdM[1])) red = true;
+  const uM = rPrXml.match(/<w:u\b[^>]*\bw:val="([^"]+)"/);
   if (uM && uM[1] !== 'none') underline = true;
-  if (!underline && /<w:u\s*\/>/.test(rPrXml)) underline = true;
   return { red, underline };
 };
 
 const parseParaShd = (pXml) => {
-  const m = pXml.match(/w:shd[^>]*w:fill="([^"]+)"/);
-  return m && isRedHex(m[1]);
+  const pPrM = pXml.match(/<w:pPr>([\s\S]*?)<\/w:pPr>/);
+  if (!pPrM) return false;
+  const m = pPrM[1].match(/<w:shd\b[^>]*\bw:fill="([^"]+)"/);
+  return !!(m && isRedHex(m[1]));
 };
 
 // ════════════════════════════════════════════════════
@@ -476,7 +479,7 @@ const parseDocxXml = (xmlString) => {
       });
     }
   }
-  return paragraphs;
+  return paragraphs.filter(p => !/https?:\/\//i.test(p.text));
 };
 
 // ════════════════════════════════════════════════════
@@ -491,11 +494,12 @@ const buildQuestionsFromParagraphs = (paragraphs) => {
   const flush = () => {
     if (options.length >= 2 && qLines.length > 0) {
       const question = qLines.join(' ').trim();
-      const correctIdx = options.findIndex(o => o.correct);
+      const correctCount = options.filter(o => o.correct).length;
+      const correctIdx = correctCount === 1 ? options.findIndex(o => o.correct) : -1;
       questions.push({
         question,
         options: options.map(o => ({ label: o.label, text: o.text, correct: o.correct })),
-        correct: correctIdx >= 0 ? correctIdx : -1,
+        correct: correctIdx,
         answered: false, userIdx: -1,
         hasNoAnswer: correctIdx < 0
       });
@@ -686,6 +690,7 @@ const buildQ = (qLines, rawOpts) => {
 };
 
 const parseText = (text) => {
+  text = text.split('\n').filter(l => !/https?:\/\//i.test(l)).join('\n');
   const lines = text.split('\n').map(l=>l.trim()).filter(Boolean);
   if (!lines.length) return [];
   if (lines.some(isCauHeader)) {
@@ -739,11 +744,18 @@ const startQuiz = async () => {
     } catch(e) { console.error(e); } finally { setLoading(false); }
 
     const noAns = parsed.filter(q => q.hasNoAnswer || q.correct < 0).length;
-    if (parsed.length === 0 || noAns > parsed.length * 0.3) {
+    if (parsed.length === 0 || noAns > 0) {
       toast('🤖 Claude AI đang đọc XML markup...', 8000);
       const ai = await aiParseFromXml(lastDocxXml, xmlToPlainText(lastDocxXml));
-      if (ai?.length) { parsed = ai; toast(`✅ AI xác nhận ${ai.length} câu`); }
-      else if (!parsed.length) { toast('❌ Không parse được câu hỏi!'); return; }
+      if (ai?.length) {
+        const aiMap = new Map(ai.map(q => [q.question.trim(), q]));
+        parsed = parsed.map(q => {
+          if (!q.hasNoAnswer && q.correct >= 0) return q;
+          const fix = aiMap.get(q.question.trim());
+          return fix && fix.correct >= 0 ? fix : q;
+        });
+        toast(`✅ AI xác nhận ${ai.length} câu`);
+      } else if (!parsed.length) { toast('❌ Không parse được câu hỏi!'); return; }
     }
   } else {
     parsed = parseText(text);
@@ -883,3 +895,4 @@ showScreen('screen-upload');
 </script>
 </body>
 </html>
+ 
