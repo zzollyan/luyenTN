@@ -488,6 +488,15 @@ const parseDocxXml = (xmlString) => {
 // BUILD QUESTIONS FROM PARAGRAPHS
 // ════════════════════════════════════════════════════
 const OPTION_LABEL_RE = /^([A-Da-d])[\.\)]\s*/;
+const normalizeQ = (s) => (s||'').replace(/\s+/g,' ').trim().toLowerCase();
+const countCauHeaders = (paragraphs) => {
+  const seen = new Set();
+  paragraphs.forEach(p => {
+    const m = p.text.trim().match(/^(?:câu|cau|question)\s*[:\.]?\s*(\d+)/i);
+    if (m) seen.add(m[1]);
+  });
+  return seen.size;
+};
 
 const buildQuestionsFromParagraphs = (paragraphs) => {
   const questions = [];
@@ -521,7 +530,7 @@ const buildQuestionsFromParagraphs = (paragraphs) => {
       if (optText.includes('*')) { correct = true; optText = optText.replace(/\*/g,'').trim(); }
       options.push({ label, text: optText, correct });
     } else {
-      if (inOptions && options.length >= 2) flush();
+      if (inOptions) flush();
       qLines.push(text);
     }
   }
@@ -629,50 +638,81 @@ setupDrop('drop1','file1','f1-badge','f1-name');
 // ════════════════════════════════════════════════════
 // CLAUDE AI — XML READER
 // ════════════════════════════════════════════════════
-const aiParseFromXml = async (xmlString, plainText) => {
-  setLoading(true, 'Claude AI đang đọc XML gốc DOCX...');
-  const xmlSnippet = xmlString.slice(0, 40000);
-  const textSnippet = plainText.slice(0, 15000);
-  const prompt = `Bạn là parser câu hỏi trắc nghiệm. Đọc XML OOXML dưới đây, xác định đáp án đúng từ markup.
+const chunkXmlByParagraph = (xml, chunkSize = 22000, overlapParas = 3) => {
+  const idxs = [];
+  const re = /<w:p[ >]/g; let m;
+  while ((m = re.exec(xml)) !== null) idxs.push(m.index);
+  idxs.push(xml.length);
+  const chunks = [];
+  let startI = 0;
+  for (let i = 0; i < idxs.length - 1; i++) {
+    if (idxs[i + 1] - idxs[startI] > chunkSize) {
+      const overlapStart = Math.max(startI, i - overlapParas);
+      chunks.push(xml.slice(idxs[overlapStart], idxs[i + 1]));
+      startI = i + 1;
+    }
+  }
+  if (startI < idxs.length - 1) chunks.push(xml.slice(idxs[startI]));
+  return chunks.filter(c => c.trim());
+};
+
+const aiParseXmlChunk = async (xmlChunk) => {
+  const prompt = `Bạn là parser câu hỏi trắc nghiệm. Đọc đoạn XML OOXML dưới đây (một phần của file Word), tách TẤT CẢ câu hỏi trắc nghiệm có trong đoạn này và xác định đáp án đúng từ markup.
 
 DẤU HIỆU ĐÁP ÁN ĐÚNG:
 1. w:u (gạch chân): <w:u w:val="single"/> trong w:rPr
 2. w:color đỏ: R>8C, G<64, B<64 (ví dụ FF0000, C00000, A00000)
 3. w:highlight: <w:highlight w:val="red"/> hoặc "darkRed"
-4. w:shd đỏ trong w:pPr: <w:shd w:fill="FF0000"/>
+4. w:shd đỏ
 5. Dấu * trong w:t
 
-LƯU Ý: Layout ngang — nhiều options A/B/C/D có thể nằm trong 1 w:p. Tách chúng ra.
-Nếu không có marker → correct=false cho tất cả (KHÔNG đoán).
+LƯU Ý QUAN TRỌNG:
+- Phải tách ĐỦ tất cả câu hỏi có trong đoạn, không được bỏ sót câu nào.
+- Nếu một câu hỏi bị cắt dở (thiếu phần đầu hoặc cuối do giới hạn đoạn), BỎ QUA câu đó, không suy đoán, không trả về câu thiếu.
+- Mỗi câu hỏi chỉ có ĐÚNG MỘT đáp án đúng. Nếu không xác định rõ đáp án đúng, để correct=false cho tất cả đáp án của câu đó.
+- Giữ nguyên nội dung câu hỏi và đáp án, không dịch, không tóm tắt, không sửa chính tả.
 
-JSON thuần: [{"question":"...","options":[{"label":"A","text":"...","correct":false},...]}]
+Chỉ trả về JSON thuần, không giải thích gì thêm: [{"question":"...","options":[{"label":"A","text":"...","correct":false},...]}]
 
 XML:
-${xmlSnippet}
-
-Plain text:
-${textSnippet}`;
-
+${xmlChunk}`;
   try {
     const res = await fetch(CLAUDE_URL, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 8192, messages:[{role:'user',content:prompt}] })
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 8192, messages: [{ role: 'user', content: prompt }] })
     });
     const data = await res.json();
-    if (data.error) { console.error(data.error); return null; }
+    if (data.error) { console.error(data.error); return []; }
     const content = data.content?.[0]?.text || '';
     const jm = content.match(/\[[\s\S]*\]/);
-    if (jm) {
-      const parsed = JSON.parse(jm[0]);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.map(q => {
-          const opts = (q.options||[]).map(o => ({ label:o.label, text:(o.text||'').replace(/\*/g,'').trim(), correct:!!o.correct }));
-          return { question:q.question, options:opts, correct:opts.findIndex(o=>o.correct), answered:false, userIdx:-1 };
-        });
-      }
+    if (!jm) return [];
+    const parsedArr = JSON.parse(jm[0]);
+    if (!Array.isArray(parsedArr)) return [];
+    return parsedArr.map(q => {
+      const opts = (q.options || []).map(o => ({ label: o.label, text: (o.text || '').replace(/\*/g, '').trim(), correct: !!o.correct }));
+      const correctCount = opts.filter(o => o.correct).length;
+      const correct = correctCount === 1 ? opts.findIndex(o => o.correct) : -1;
+      return { question: (q.question || '').trim(), options: opts, correct, answered: false, userIdx: -1, hasNoAnswer: correct < 0 };
+    }).filter(q => q.question && q.options.length >= 2);
+  } catch (e) { console.error(e); return []; }
+};
+
+const aiParseFullDoc = async (xmlString) => {
+  const chunks = chunkXmlByParagraph(xmlString);
+  const seen = new Set();
+  const all = [];
+  for (let i = 0; i < chunks.length; i++) {
+    setLoading(true, `Claude AI đang xác minh đề (${i + 1}/${chunks.length})...`);
+    const res = await aiParseXmlChunk(chunks[i]);
+    for (const q of res) {
+      const key = normalizeQ(q.question);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      all.push(q);
     }
-  } catch(e) { console.error(e); } finally { setLoading(false); }
-  return null;
+  }
+  setLoading(false);
+  return all;
 };
 
 // ════════════════════════════════════════════════════
@@ -779,22 +819,31 @@ const startQuiz = async () => {
 
   if (lastDocxXml) {
     setLoading(true, 'Đang phân tích XML gốc DOCX...');
+    let docParagraphs = [];
     try {
-      parsed = buildQuestionsFromParagraphs(parseDocxXml(lastDocxXml));
-    } catch(e) { console.error(e); } finally { setLoading(false); }
+      docParagraphs = parseDocxXml(lastDocxXml);
+      parsed = buildQuestionsFromParagraphs(docParagraphs);
+    } catch(e) { console.error(e); parsed = []; } finally { setLoading(false); }
 
+    const expectedCount = countCauHeaders(docParagraphs);
     const noAns = parsed.filter(q => q.hasNoAnswer || q.correct < 0).length;
-    if (parsed.length === 0 || noAns > 0) {
-      toast('🤖 Claude AI đang đọc XML markup...', 8000);
-      const ai = await aiParseFromXml(lastDocxXml, xmlToPlainText(lastDocxXml));
-      if (ai?.length) {
-        const aiMap = new Map(ai.map(q => [q.question.trim(), q]));
-        parsed = parsed.map(q => {
-          if (!q.hasNoAnswer && q.correct >= 0) return q;
-          const fix = aiMap.get(q.question.trim());
-          return fix && fix.correct >= 0 ? fix : q;
-        });
-        toast(`✅ AI xác nhận ${ai.length} câu`);
+    const countMismatch = expectedCount > 0 && parsed.length < expectedCount;
+
+    if (parsed.length === 0 || noAns > 0 || countMismatch) {
+      toast('🤖 Claude AI đang xác minh toàn bộ đề...', 10000);
+      const ai = await aiParseFullDoc(lastDocxXml);
+      if (ai.length > 0) {
+        if (parsed.length === 0 || countMismatch || ai.length > parsed.length) {
+          parsed = ai;
+        } else {
+          const aiMap = new Map(ai.map(q => [normalizeQ(q.question), q]));
+          parsed = parsed.map(q => {
+            if (!q.hasNoAnswer && q.correct >= 0) return q;
+            const fix = aiMap.get(normalizeQ(q.question));
+            return fix && fix.correct >= 0 ? fix : q;
+          });
+        }
+        toast(`✅ Đã xác minh ${parsed.length} câu`);
       } else if (!parsed.length) { toast('❌ Không parse được câu hỏi!'); return; }
     }
   } else {
